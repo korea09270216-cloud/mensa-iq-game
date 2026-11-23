@@ -326,16 +326,21 @@
 
   function glyphOptions(rng, correct, cells, spec, level) {
     function gd(rot, fill, glyph) { return glyphData(((rot % 8) + 8) % 8, fill, glyph); }
-    var singles = [], dbl = [], other = [];
-    [1, 2, 4, 6, 7].forEach(function (d) { singles.push(gd(correct.rot + d, correct.fill, correct.glyph)); });
-    [0, 1, 2].forEach(function (f) { if (f !== correct.fill) singles.push(gd(correct.rot, f, correct.glyph)); });
-    spec.dom.glyph.forEach(function (g) { if (g !== correct.glyph) singles.push(gd(correct.rot, correct.fill, g)); });
-    for (var i = 0; i < 40; i++) {
-      dbl.push(gd(correct.rot + rng.pick([1, 2, 4, 6, 7]), rng.int(3), correct.glyph));
-      dbl.push(gd(correct.rot + rng.pick([1, 2, 4, 6, 7]), correct.fill, rng.pick(spec.dom.glyph)));
+    function varies(nm) { return spec.attrs[nm].dr !== 0 || spec.attrs[nm].dc !== 0; }
+    var vr = varies('rot'), vf = varies('fill'), vg = varies('glyph');
+    var singles = [], dbl = [], wild = [];
+    // 퍼즐에서 실제로 바뀌는 속성만 건드린 그럴듯한 오답 우선
+    if (vr) [1, 2, 4, 6, 7].forEach(function (d) { singles.push(gd(correct.rot + d, correct.fill, correct.glyph)); });
+    if (vf) [0, 1, 2].forEach(function (f) { if (f !== correct.fill) singles.push(gd(correct.rot, f, correct.glyph)); });
+    if (vg) spec.dom.glyph.forEach(function (g) { if (g !== correct.glyph) singles.push(gd(correct.rot, correct.fill, g)); });
+    for (var i = 0; i < 60; i++) {
+      var rr = vr ? correct.rot + rng.pick([1, 2, 4, 6, 7]) : correct.rot;
+      var ff = vf ? rng.int(3) : correct.fill;
+      var gg = vg ? rng.pick(spec.dom.glyph) : correct.glyph;
+      dbl.push(gd(rr, ff, gg));
+      wild.push(gd(correct.rot + rng.pick([1, 2, 4, 6, 7]), rng.int(3), rng.pick(spec.dom.glyph)));
     }
-    var nbrs = [cells[7], cells[5]].map(function (c) { return glyphData(c.rot, c.fill, c.glyph); });
-    var groups = [grp(rng, nbrs, level === 3 ? 2 : 1), grp(rng, singles, 4), grp(rng, dbl, 5)];
+    var groups = [grp(rng, singles, 4), grp(rng, dbl, 5), grp(rng, wild, 5)];
     return pickOptions(rng, correct, groups, 5);
   }
 
@@ -432,15 +437,18 @@
   function genGlyph(rng, level) {
     var spec = { dom: { fill: rng.shuffle([0, 1, 2]), glyph: rng.shuffle([0, 1, 2, 3]).slice(0, 3) }, attrs: {} };
     var names = ['rot', 'fill', 'glyph'];
-    var varying = level === 1 ? [rng.pick(['rot', 'fill'])] : level === 2 ? rng.shuffle(names).slice(0, 2) : names;
-    var ROTSTEP = [0, 1, 2, 4, 6, 7];
+    var varying = level === 1 ? ['rot', 'fill'] : names;
+    function step(nm, nonzero) { return rng.pick(nm === 'rot' ? (nonzero ? [1, 2, 4, 6, 7] : [0, 1, 2, 4, 6, 7]) : (nonzero ? [1, 2] : [0, 1, 2])); }
+    var rowAttr = rng.pick(['rot', 'fill']);
     names.forEach(function (nm) {
-      var n = GATTR[nm].n, a = rng.int(n), dr = 0, dc = 0;
-      if (varying.indexOf(nm) >= 0) {
-        do {
-          dr = nm === 'rot' ? rng.pick(ROTSTEP) : rng.int(n);
-          dc = nm === 'rot' ? rng.pick(ROTSTEP) : rng.int(n);
-        } while ((dr === 0 && dc === 0) || (level === 1 && dc === 0));
+      var a = rng.int(GATTR[nm].n), dr = 0, dc = 0;
+      if (level === 1) {
+        // 한 속성은 줄마다, 다른 속성은 칸마다 바뀐다
+        if (nm === rowAttr) dr = step(nm, true); else dc = step(nm, true);
+      } else if (level === 2) {
+        do { dr = step(nm, false); dc = step(nm, false); } while (dr === 0 && dc === 0);
+      } else {
+        dr = step(nm, true); dc = step(nm, true);
       }
       spec.attrs[nm] = { a: a, dr: dr, dc: dc };
     });
@@ -533,6 +541,9 @@
       var fam = pickFamily(rng, level);
       var g = fam === 'pix' ? genPix(rng, level) : fam === 'overlay' ? genOverlay(rng, level) : fam === 'combo' ? genCombo(rng, level) : genGlyph(rng, level);
       if (!g) continue;
+      var distinct = {};
+      g.data.forEach(function (d) { distinct[d.k] = 1; });
+      if (Object.keys(distinct).length !== 9) continue;
       return {
         type: 'matrix', family: g.family, level: level, answer: g.opt.answer, score: g.score, seed: seed,
         fp: g.family[0].toUpperCase() + level + JSON.stringify(g.spec),
@@ -543,7 +554,7 @@
     throw new Error('problem generation failed');
   }
 
-  var PLAN = [[1, 12], [2, 13], [3, 10]];   // 35문항 (실제 연습 테스트와 같은 문항 수)
+  var PLAN = [[1, 9], [2, 14], [3, 12]];   // 35문항 (실제 연습 테스트와 같은 문항 수, 뒤쪽 비중이 큼)
   var TOTAL = PLAN.reduce(function (s, p) { return s + p[1]; }, 0);
 
   // 한 번의 시험: 쉬움 → 보통 → 어려움, 각 구간 안에서도 쉬운 것부터. 한 시험 안에 같은 문제 없음.

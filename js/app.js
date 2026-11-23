@@ -8,7 +8,7 @@
   var ADVANCE_MS = 220;             // 보기를 누르면 이 시간 뒤에 다음 문제로
   var KEY = 'mensa-iq-game:v3';
   var WEIGHT = { 1: 1, 2: 1.5, 3: 2 };
-  var MAX_SCORE = G.LEVELS.reduce(function (s, l) { return s + WEIGHT[l[0]] * l[1]; }, 0);   // 12×1 + 13×1.5 + 10×2 = 51.5
+  var MAX_SCORE = G.LEVELS.reduce(function (s, l) { return s + WEIGHT[l[0]] * l[1]; }, 0);   // 9×1 + 14×1.5 + 12×2 = 54
 
   var app = document.getElementById('app');
   var topBar = document.getElementById('top');

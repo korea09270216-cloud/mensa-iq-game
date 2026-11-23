@@ -23,6 +23,8 @@ function checkProblem(p) {
   if (matches.length !== 1) fail('풀이기 예측과 일치하는 보기 수 != 1 (' + matches.length + '): ' + p.fp);
   if (d.options[p.answer].k !== sol.key) fail('정답 인덱스가 풀이기 결과와 불일치: ' + p.fp);
   if (d.cells[8].k !== sol.key) fail('빈칸의 실제 값과 풀이기 결과 불일치: ' + p.fp);
+  var ks = {}; d.cells.forEach(function (c) { ks[c.k] = 1; });
+  if (Object.keys(ks).length !== 9) fail('9칸이 모두 다르지 않음(이웃 칸 복사 가능): ' + p.fp);
 }
 
 var perLevel = { 1: {}, 2: {}, 3: {} }, perFam = {};
