@@ -1,4 +1,4 @@
-/* 멘사 스타일 3×3 도형 행렬 생성기 — 브라우저와 Node 양쪽에서 동작 (ES 모듈 아님: file:// 에서도 열리도록)
+/* 3×3 도형 행렬 생성기 — 브라우저와 Node 양쪽에서 동작 (ES 모듈 아님: file:// 에서도 열리도록)
  *
  * 참고 테스트 35문항의 규칙 계열을 전사·검증한 설계도. 마지막 문항의 공개 풀이 참고 내역은 README에 표시한다.
  * 칸마다 규칙 계열이 다르다 (직교 → 이중 라틴 → 회전+속성 → 합성 → 겹침/XOR/분할 → 두 층 연산).
@@ -1002,6 +1002,108 @@
   function levelOf(slot) { return slot < 9 ? 1 : slot < 23 ? 2 : 3; }
   var PLAN = [[1, 9], [2, 14], [3, 12]];
 
+  /* ───────── 풀이 설명 (결과 화면의 '문제 다시 보기'에서 보여 줄 짧은 한국어 설명) ───────── */
+  var ATTR_LABELS = {
+    'frame-sym': [['바깥 도형'], ['안쪽 기호']],
+    'frame-fill': [['도형'], ['색(채우기)']],
+    'frame-line': [['도형'], ['가로지르는 선의 방향']],
+    'stick-hammer': [['막대의 회전(시계 반대 방향)', '×45°'], ['머리의 위치']],
+    'stick-arrow': [['화살표의 회전(시계 반대 방향)', '×45°'], ['화살촉의 위치']],
+    'quadrant': [['네모의 위치(시계 방향으로 한 구역씩)', '구역'], ['점의 위치(시계 방향으로 한 구역씩)', '구역']],
+    'above-below': [['선 위쪽 모양'], ['선 아래쪽 모양']],
+    'polyomino': [['윗줄 블록 수', '개'], ['아랫줄 블록 수', '개']],
+    'diag-square': [['삼각형 방향(시계 방향 회전)', '×90°'], ['삼각형 색']],
+    'chevron': [['꺾쇠 방향(시계 방향 회전)', '×90°'], ['점 개수']],
+    'umbrella': [['우산 방향(시계 방향 회전)', '×90°'], ['우산 속(흰색/빗금/검정)']],
+    'clock': [['바늘 각도(시계 방향)', '×45°']],
+    'pincer': [['집게 방향(시계 방향 회전)', '×90°'], ['벌어진 각']],
+    'bowtie': [['나비넥타이 회전(시계 방향)', '×45°'], ['빗금이 있는 쪽']],
+    'tokens': [['검은 원의 위치'], ['나머지 두 기호의 짝']],
+    'polyline': [['꺾은선 회전(시계 방향)', '×90°'], ['꺾은선 모양']],
+    'dot-groups': [['위쪽 점 묶음'], ['아래쪽 점 묶음']],
+    'half-arrow': [['화살 방향(시계 방향 회전)', '×90°'], ['검은 쪽(왼쪽/오른쪽)']],
+    'line-counts': [['가로선 수', '개'], ['세로선 수', '개']]
+  };
+  function stepText(a, b, unit) {
+    function one(x) { return unit.charAt(0) === '×' ? '+' + (x * parseInt(unit.slice(1), 10)) + '°' : '+' + x + unit; }
+    return a === b ? one(a) : '첫 칸에서 ' + one(a) + ', 다음 칸에서 ' + one(b);
+  }
+  function descClass(label, rule) {
+    var rep = rule.map.filter(function (v, i, a) { return a.indexOf(v) === i; }).length < 3 ? ' (값이 반복되는 3칸 주기)' : '';
+    if (rule.dc === 0) return label + ': 같은 줄에서는 모두 같고, 줄이 바뀔 때마다 달라집니다.' + rep;
+    if (rule.dr === 0) return label + ': 같은 열에서는 모두 같고, 열이 바뀔 때마다 달라집니다.' + rep;
+    return label + ': 세 가지가 한 줄에 한 번씩 나오고, 줄이 바뀔 때마다 한 칸씩 어긋나며 돌아갑니다.' + rep;
+  }
+  function descAdd(label, rule, unit, plain) {
+    var n = rule.n, u = unit || '';
+    if (plain) return label + ' = (행 값) + (열 값). 행 값은 위에서 아래로 ' + rule.R.join('·') + ', 열 값은 왼쪽에서 오른쪽으로 ' + rule.C.join('·') + '입니다.';
+    var r = [(rule.R[1] - rule.R[0] + n) % n, (rule.R[2] - rule.R[1] + n) % n], c = [(rule.C[1] - rule.C[0] + n) % n, (rule.C[2] - rule.C[1] + n) % n];
+    var rowZero = rule.R.every(function (x) { return x === 0; }), colZero = rule.C.every(function (x) { return x === 0; });
+    if (colZero) return label + ': 같은 줄에서는 그대로이고, 아래 줄로 갈 때마다 ' + stepText(r[0], r[1], u) + '씩 바뀝니다.';
+    if (rowZero) return label + ': 같은 열에서는 그대로이고, 오른쪽 칸으로 갈 때마다 ' + stepText(c[0], c[1], u) + '씩 바뀝니다.';
+    return label + ': 오른쪽 칸으로 갈 때 ' + stepText(c[0], c[1], u) + ', 아래 줄로 갈 때 ' + stepText(r[0], r[1], u) + ' 만큼 더해집니다.';
+  }
+  var OP_TEXT = {
+    or: '두 칸을 겹쳐 그린 것(합)', xor: '두 칸에서 서로 다른 부분만 남긴 것(겹친 부분은 지움)', and: '두 칸의 공통 부분만 남긴 것',
+    d12: '첫 칸에서 둘째 칸과 겹치는 부분을 뺀 것', d21: '둘째 칸에서 첫 칸과 겹치는 부분을 뺀 것', xnor: '두 칸이 같은 자리는 검게, 다른 자리는 희게 한 것'
+  };
+  var TF_TEXT = {
+    rot90: '시계 방향으로 90° 회전', rot180: '180° 회전', rot270: '시계 반대 방향으로 90° 회전', flipH: '좌우 반전', flipV: '상하 반전',
+    trans: '대각선 기준 반전', shiftR: '오른쪽으로 한 칸 이동(끝은 반대편으로)', shiftL: '왼쪽으로 한 칸 이동(끝은 반대편으로)',
+    shiftD: '아래로 한 칸 이동(끝은 위로)', shiftU: '위로 한 칸 이동(끝은 아래로)', invert: '흑백 반전'
+  };
+  function tfText(name) {
+    var p = name.split('+');
+    return p.map(function (x) { return TF_TEXT[x] || x; }).join('한 뒤 ');
+  }
+  var LAYER_NAMES = { dial2: ['살(선)', '점'], ringsDots: ['고리', '점'], horizontal2: ['네모', '점'] };
+  function explainProblem(g) {
+    var f = g.family, sp = g.spec, out = [];
+    if (ATTR_LABELS[f]) {
+      sp[1].forEach(function (rule, i) {
+        var lb = ATTR_LABELS[f][i];
+        out.push(rule.t === 'class' ? descClass(lb[0], rule) : descAdd(lb[0], rule, lb[1] || '', f === 'line-counts'));
+      });
+      out.push(sp[1].length > 1 ? '두 속성이 서로 따로 바뀌므로, 빈칸 자리의 값을 각각 구해 합치면 정답이 됩니다.' : '이 규칙으로 빈칸 자리의 값을 구하면 정답이 됩니다.');
+    } else if (f === 'pix-pos') {
+      out.push('검은 칸의 위치가 가로·세로로 일정한 간격만큼 이동합니다. 같은 이동 규칙을 빈칸 자리에 적용한 위치가 정답입니다.');
+    } else if (f === 'pix-hankel') {
+      out.push('왼쪽 아래에서 오른쪽 위로 이어지는 대각선은 모두 같은 그림입니다.');
+      out.push('대각선이 하나 늘어날 때마다 검은 칸이 1개씩 늘어나므로, 빈칸은 검은 칸이 5개인 그림이고 보기 중 하나뿐입니다.');
+    } else if (f === 'pix-tf') {
+      out.push('칸이 하나 넘어갈 때마다 같은 변환이 한 번씩 적용됩니다: ' + tfText(sp[1][0]) + '.');
+      out.push(sp[1][2] ? '세로(위→아래) 방향으로 변환이 이어집니다.' : '가로(왼쪽→오른쪽) 방향으로 변환이 이어집니다.');
+    } else if (f === 'pix-op') {
+      out.push((sp[1][2] ? '위 두 칸으로 아래 칸을' : '왼쪽 두 칸으로 오른쪽 칸을') + ' 만듭니다. 결과 칸 = ' + (OP_TEXT[sp[1][0]] || '') + '.');
+      out.push('같은 규칙을 마지막 줄(열)에 적용하면 빈칸이 나옵니다.');
+    } else if (f.indexOf('ov-') === 0) {
+      var theme = sp[1][0], arr = sp[1][1], ops = sp[1][2], vertical = sp[1][4], post = sp[1][5];
+      var names = LAYER_NAMES[theme];
+      var dir = vertical ? '위 두 칸으로 아래 칸' : '왼쪽 두 칸으로 오른쪽 칸';
+      if (arr === 'part') out.push('한 줄(또는 한 열)의 세 칸이 같은 요소들을 서로 겹치지 않게 나눠 가집니다. 빈칸은 그 줄에서 아직 나오지 않은 요소들입니다.');
+      else if (arr === 'mid') out.push('가운데 칸은 양쪽 칸을 겹쳐 그린 것입니다. 따라서 빈칸은 가운데 칸에서 왼쪽 칸의 요소를 뺀 나머지입니다.');
+      else if (names) ops.forEach(function (op, i) { out.push(names[i] + ' 층: ' + dir + '을 만들며, 결과 = ' + OP_TEXT[op] + '.' + (post && i === 0 ? ' (공통 부분을 구한 뒤 위아래를 뒤집습니다)' : '')); });
+      else out.push(dir + '을 만들며, 결과 칸 = ' + OP_TEXT[ops[0]] + '.' + (vertical ? '' : ''));
+      if (arr === 'last' && names) out.push('두 층을 따로 계산한 뒤 겹쳐 그린 것이 정답입니다.');
+      else if (arr === 'last') out.push('같은 규칙을 마지막 줄(열)에 적용하면 빈칸이 나옵니다.');
+    } else if (f === 'signed-stacks') {
+      out.push('막대 오른쪽의 네모는 +, 왼쪽의 네모는 −로 세어 흰 네모와 검은 네모를 따로 계산합니다.');
+      out.push('한 줄(또는 한 열)에서 앞 두 칸의 값을 더하면 세 번째 칸이 됩니다.');
+    } else if (f === 'ternary-positions') {
+      out.push('네 자리(왼쪽 위·오른쪽 위·왼쪽 아래·오른쪽 아래)마다 비어 있음/점/네모의 세 상태가 있습니다.');
+      out.push('앞 두 칸의 상태를 자리마다 더해(3으로 나눈 나머지) 세 번째 칸을 만듭니다.');
+    } else if (f === 'folded-flags') {
+      out.push('삼각 깃발이 이어지는 대각선을 따라 반대쪽으로 접혀 옮겨 갑니다. 접힌 깃발은 색(흰색/빗금)을 유지하고, 겹치면 빗금이 보입니다.');
+    } else if (f === 'occluded-dots') {
+      out.push('검은 점은 대각선을 따라 같은 모양이 반복됩니다.');
+      out.push('흰 점 두 개는 여섯 자리 고리를 따라 칸마다 일정하게 이동하며, 검은 점과 겹치는 자리는 가려집니다.');
+    } else if (f === 'diagonal-union') {
+      out.push('각 칸은 서로 반대 방향으로 이어지는 두 대각선의 요소를 합쳐 놓은 그림입니다.');
+      out.push('빈칸에 해당하는 두 대각선의 요소를 합치면 정답이 됩니다.');
+    } else out.push('보이는 8칸에서 규칙을 찾아 빈칸에 적용한 그림이 정답입니다.');
+    return out;
+  }
+
   function generateProblem(slot, seed) {
     var rng = makeRng(seed), level = levelOf(slot), pool = SLOTS[slot];
     for (var tries = 0; tries < 300; tries++) {
@@ -1010,7 +1112,7 @@
       var data = g.cells;
       return {
         type: 'matrix', slot: slot, family: g.family, level: level, answer: g.answer, score: slot, seed: seed,
-        fp: slot + ':' + JSON.stringify(g.spec),
+        fp: slot + ':' + JSON.stringify(g.spec), explain: explainProblem(g),
         cells: data.slice(0, 8).map(g.render), options: g.options.map(g.render),
         _data: { cells: data, options: g.options, meta: g.meta }
       };
@@ -1037,5 +1139,5 @@
 
   var api = { makeRng: makeRng, generateProblem: generateProblem, generateTest: generateTest, solve: solve, levelOf: levelOf, TOTAL: TOTAL, LEVELS: PLAN };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  else root.MensaGen = api;
+  else root.IQGen = api;
 })(typeof self !== 'undefined' ? self : this);

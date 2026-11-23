@@ -1,12 +1,12 @@
-/* 멘사 스타일 IQ 테스트 — 화면/타이머/채점 (재미용, 공식 IQ 검사 아님) */
+/* IQ 테스트 — 화면/타이머/채점 (재미용, 공식 IQ 검사 아님) */
 (function () {
   'use strict';
 
-  var G = window.MensaGen;
+  var G = window.IQGen;
   var TOTAL_Q = G.TOTAL;            // 35문항
-  var TOTAL_SEC = 25 * 60;          // 제한시간 25분 (멘사 온라인 연습 테스트: 35문항 25분)
+  var TOTAL_SEC = 25 * 60;          // 제한시간 25분
   var ADVANCE_MS = 220;             // 보기를 누르면 이 시간 뒤에 다음 문제로
-  var KEY = 'mensa-iq-game:v6';
+  var KEY = 'iq-test:v8';
   var WEIGHT = { 1: 1, 2: 1.5, 3: 2 };
   var MAX_SCORE = G.LEVELS.reduce(function (s, l) { return s + WEIGHT[l[0]] * l[1]; }, 0);   // 9×1 + 14×1.5 + 12×2 = 54
 
@@ -15,7 +15,7 @@
   var countEl = document.getElementById('count');
   var timeText = document.getElementById('timeText');
 
-  var state = null, test = null, screen = 'cover', ticker = null, locked = false;
+  var state = null, test = null, screen = 'cover', ticker = null, locked = false, reviewIdx = 0;
 
   /* ───────── 저장 ───────── */
   function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } }
@@ -55,7 +55,7 @@
     app.innerHTML =
       '<section class="cover">' +
       '<div class="hero">' + boardHtml(demo.cells) + '</div>' +
-      '<h1>멘사 스타일 IQ 테스트</h1>' +
+      '<h1>IQ 테스트</h1>' +
       '<div class="chips"><span>3×3 도형 추론</span><span>' + TOTAL_Q + '문항</span><span>' + (TOTAL_SEC / 60) + '분</span><span>점점 어려워짐</span></div>' +
       (resumable
         ? '<button class="btn" id="resume">이어서 풀기 · ' + esc(state.name) + ' · ' + fmtTime(remaining()) + ' 남음</button>' +
@@ -73,7 +73,7 @@
       '<li>보기를 누르면 바로 다음 문제로 넘어가요. 이전 문제로 돌아가 답을 바꿀 수도 있어요.</li>' +
       '<li>키보드: A~F(또는 1~6) 보기 선택 · ←/→ 이동</li>' +
       '</ul>' +
-      '<p class="notice">재미용 테스트입니다. 멘사(Mensa)와 무관하며 공식 IQ 검사가 아니에요.</p>' +
+      '<p class="notice">재미용 테스트입니다. 공식 IQ 검사가 아니에요.</p>' +
       '</section>';
 
     var form = document.getElementById('form');
@@ -206,18 +206,22 @@
     return s * y;
   }
   function topPercent(iq) { return (1 - 0.5 * (1 + erf((iq - 100) / 15 / Math.SQRT2))) * 100; }
-  function fmtPct(v) { return v >= 10 ? Math.round(v) : v >= 1 ? +v.toFixed(1) : Math.max(0.01, +v.toFixed(2)); }
+  function fmtPct(v) { return v >= 99 ? +v.toFixed(1) : v >= 10 ? Math.round(v) : v >= 1 ? +v.toFixed(1) : Math.max(0.01, +v.toFixed(2)); }
 
   var TIERS = [
     { max: 80, emoji: '🐒', name: '원숭이', msg: '{n}님은 원숭이와 동급입니다. 바나나를 앞에 두면 누구보다 빠르게 움직일 거예요.' },
     { max: 95, emoji: '🐶', name: '강아지', msg: '{n}님은 강아지 등급입니다. 눈치와 센스는 이미 만렙이에요.' },
     { max: 110, emoji: '🦜', name: '앵무새', msg: '{n}님은 앵무새 등급입니다. 평균적으로 똑똑하고, 말도 잘 따라 해요.' },
     { max: 120, emoji: '🦍', name: '침팬지', msg: '{n}님은 침팬지 등급입니다. 도구도 쓸 줄 아는 꽤 영리한 두뇌예요.' },
-    { max: 130, emoji: '🐬', name: '돌고래', msg: '{n}님은 돌고래 등급입니다. 상위권 두뇌, 멘사 문턱이 눈앞이에요.' },
+    { max: 130, emoji: '🐬', name: '돌고래', msg: '{n}님은 돌고래 등급입니다. 상위권 두뇌, 천재 문턱이 눈앞이에요.' },
     { max: 140, emoji: '🐙', name: '문어', msg: '{n}님은 문어 등급입니다. 다리가 여덟 개라도 모자랄 만큼 머리가 빨리 돌아가요.' },
     { max: 145, emoji: '🕵️', name: '셜록 홈즈', msg: '{n}님은 셜록 홈즈 등급입니다. 사소한 단서로 규칙을 꿰뚫어 보네요.' },
     { max: 999, emoji: '🧑‍🔬', name: '아인슈타인', msg: '{n}님은 아인슈타인 등급입니다. 지구에서 이 정도면 거의 외계 지능이에요.' }
   ];
+  // 문장 단위로 줄을 나눈다 (한 문장이 길면 CSS가 균형 있게 접는다)
+  function sentences(text) {
+    return text.replace(/([.!?])\s+/g, '$1|').split('|').map(function (t) { return '<span class="s">' + esc(t) + '</span>'; }).join('');
+  }
   function tierOf(iq) { for (var i = 0; i < TIERS.length; i++) if (iq < TIERS[i].max) return TIERS[i]; return TIERS[TIERS.length - 1]; }
 
   function finish() {
@@ -237,7 +241,12 @@
   }
 
   /* ───────── 결과 ───────── */
+  var LETTERS = 'ABCDEF', LEVEL_NAME = { 1: '쉬움', 2: '보통', 3: '어려움' }, ST_NAME = { ok: '정답', ng: '오답', skip: '미응답' };
+  function ensureTest() { if (!test) test = G.generateTest(state.seed); }
+  function statusOf(i) { var x = state.answers[i]; return x < 0 ? 'skip' : x === test[i].answer ? 'ok' : 'ng'; }
+
   function showResult() {
+    ensureTest();
     screen = 'result';
     stopTicker();
     topBar.hidden = true;
@@ -251,14 +260,67 @@
       '<div class="pcts"><div><b>상위 ' + top + '%</b><small>IQ 수준</small></div><div><b>하위 ' + bottom + '%</b><small>나보다 낮은 사람 비율</small></div></div>' +
       '<div class="gauge" aria-hidden="true"><i style="width:' + bottom + '%"></i><em style="left:' + bottom + '%"></em></div>' +
       '<div class="gauge-l"><span>하위</span><span>상위</span></div>' +
-      '<div class="animal"><div class="emoji">' + tier.emoji + '</div><h2>' + tier.name + ' 등급</h2><p>' + esc(tier.msg.replace('{n}', state.name)) + '</p></div>' +
+      '<div class="animal"><div class="emoji">' + tier.emoji + '</div><h2>' + tier.name + ' 등급</h2><p>' + sentences(tier.msg.replace('{n}', state.name)) + '</p></div>' +
       '<div class="stats"><span>정답 ' + r.correct + ' / ' + TOTAL_Q + '</span>' +
       '<span>쉬움 ' + r.by[1][0] + '/' + r.by[1][1] + '</span><span>보통 ' + r.by[2][0] + '/' + r.by[2][1] + '</span><span>어려움 ' + r.by[3][0] + '/' + r.by[3][1] + '</span>' +
       '<span>소요 ' + fmtTime(r.usedSec) + '</span></div>' +
-      '<button class="btn" id="again">다시 도전하기</button>' +
-      '<p class="notice">재미용 결과입니다. 멘사(Mensa)와 무관하며 공식 IQ 검사가 아니에요.</p>' +
+      '<h3 class="sec-title">문항별 결과 <small>눌러서 정답과 풀이 보기</small></h3>' +
+      '<div class="rv-grid">' + test.map(function (p, i) {
+        var st = statusOf(i);
+        return '<button type="button" class="rv-chip ' + st + '" data-k="' + i + '" aria-label="' + (i + 1) + '번 ' + ST_NAME[st] + '">' + (i + 1) + '</button>';
+      }).join('') + '</div>' +
+      '<div class="rv-legend"><span class="ok">정답</span><span class="ng">오답</span><span class="skip">미응답</span></div>' +
+      '<button class="btn" id="review">문제 다시 보기</button>' +
+      '<button class="btn ghost" id="again">다시 도전하기</button>' +
+      '<p class="notice">재미용 결과입니다. 공식 IQ 검사가 아니에요.</p>' +
       '</section>';
-    document.getElementById('again').addEventListener('click', function () { clearSave(); state = null; showCover(); });
+    document.getElementById('again').addEventListener('click', function () { clearSave(); state = null; test = null; showCover(); });
+    document.getElementById('review').addEventListener('click', function () { showReview(0); });
+    app.querySelectorAll('.rv-chip').forEach(function (b) {
+      b.addEventListener('click', function () { showReview(parseInt(b.getAttribute('data-k'), 10)); });
+    });
+    window.scrollTo(0, 0);
+  }
+
+  /* ───────── 문제 다시 보기: 정답과 간단한 풀이 ───────── */
+  function showReview(k) {
+    ensureTest();
+    screen = 'review';
+    topBar.hidden = true;
+    k = Math.max(0, Math.min(TOTAL_Q - 1, k));
+    var p = test[k], mine = state.answers[k], st = statusOf(k);
+    var board = '<div class="board" role="img" aria-label="3×3 도형 배열, 오른쪽 아래 칸은 정답으로 채워져 있음">' +
+      p.cells.map(cellHtml).join('') +
+      '<div class="cell ans"><svg viewBox="0 0 100 100" aria-hidden="true">' + p.options[p.answer] + '</svg></div></div>';
+    var opts = '<div class="opts" aria-label="보기">' + p.options.map(function (o, i) {
+      var right = i === p.answer, wrong = i === mine && !right;
+      var tag = right ? (i === mine ? '정답 · 내 답' : '정답') : wrong ? '내 답' : '';
+      return '<div class="opt static' + (right ? ' right' : '') + (wrong ? ' wrong' : '') + '">' +
+        '<span class="lbl">' + LETTERS.charAt(i) + '</span>' +
+        '<span class="fig"><svg viewBox="0 0 100 100" aria-hidden="true">' + o + '</svg></span>' +
+        '<span class="tag">' + tag + '</span></div>';
+    }).join('') + '</div>';
+    app.innerHTML =
+      '<section class="review">' +
+      '<div class="rv-head"><button type="button" class="link" id="back">← 결과로</button>' +
+      '<span class="rv-title">' + (k + 1) + ' / ' + TOTAL_Q + '번 <em class="lv">' + LEVEL_NAME[p.level] + '</em></span>' +
+      '<span class="badge ' + st + '">' + ST_NAME[st] + '</span></div>' +
+      '<div class="seg rv" aria-label="문항 이동">' + test.map(function (q, i) {
+        return '<button type="button" data-k="' + i + '" aria-label="' + (i + 1) + '번 ' + ST_NAME[statusOf(i)] + '" class="' + statusOf(i) + (i === k ? ' cur' : '') + '"></button>';
+      }).join('') + '</div>' +
+      '<div class="stage">' + board + opts + '</div>' +
+      '<div class="explain"><h3>정답은 ' + LETTERS.charAt(p.answer) + '번' + (mine >= 0 ? ' · 내 답은 ' + LETTERS.charAt(mine) + '번' : ' · 풀지 않은 문제') + '</h3>' +
+      '<ul>' + (p.explain || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>' +
+      '<div class="actions"><button type="button" id="rprev"' + (k === 0 ? ' disabled' : '') + '>← 이전</button>' +
+      '<button type="button" id="rnext"' + (k === TOTAL_Q - 1 ? ' disabled' : '') + '>다음 →</button></div>' +
+      '</section>';
+    document.getElementById('back').addEventListener('click', showResult);
+    document.getElementById('rprev').addEventListener('click', function () { showReview(k - 1); });
+    document.getElementById('rnext').addEventListener('click', function () { showReview(k + 1); });
+    app.querySelectorAll('.seg.rv button').forEach(function (b) {
+      b.addEventListener('click', function () { showReview(parseInt(b.getAttribute('data-k'), 10)); });
+    });
+    reviewIdx = k;
     window.scrollTo(0, 0);
   }
 
@@ -267,6 +329,12 @@
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     var tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea') return;
+    if (screen === 'review') {
+      if (e.key === 'ArrowLeft') showReview(reviewIdx - 1);
+      else if (e.key === 'ArrowRight') showReview(reviewIdx + 1);
+      else if (e.key === 'Escape') showResult();
+      return;
+    }
     if (screen !== 'test' || !state || state.done) return;
     var k = e.key;
     if (k >= '1' && k <= '6') { choose(parseInt(k, 10) - 1); e.preventDefault(); }
