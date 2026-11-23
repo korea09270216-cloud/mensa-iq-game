@@ -4,17 +4,18 @@
 
   var G = window.MensaGen;
   var TOTAL_Q = G.TOTAL;            // 30문항
-  var TOTAL_SEC = 25 * 60;          // 제한시간 25분
-  var KEY = 'mensa-iq-game:v1';
+  var TOTAL_SEC = 20 * 60;          // 제한시간 20분 (멘사코리아 입회 테스트도 20분 안팎)
+  var ADVANCE_MS = 220;             // 보기를 누르면 이 시간 뒤에 다음 문제로
+  var KEY = 'mensa-iq-game:v2';
   var WEIGHT = { 1: 1, 2: 1.5, 3: 2 };
   var MAX_SCORE = G.LEVELS.reduce(function (s, l) { return s + WEIGHT[l[0]] * l[1]; }, 0);   // 10×1 + 12×1.5 + 8×2 = 44
 
   var app = document.getElementById('app');
-  var timerBtn = document.getElementById('timer');
+  var topBar = document.getElementById('top');
+  var countEl = document.getElementById('count');
   var timeText = document.getElementById('timeText');
-  var timebar = document.querySelector('#timebar i');
 
-  var state = null, test = null, screen = 'cover', ticker = null, peekT = null;
+  var state = null, test = null, screen = 'cover', ticker = null, locked = false;
 
   /* ───────── 저장 ───────── */
   function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } }
@@ -25,42 +26,39 @@
   function fmtTime(sec) { sec = Math.max(0, Math.ceil(sec)); var m = Math.floor(sec / 60), s = sec % 60; return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s; }
   function remaining() { return (state.endsAt - Date.now()) / 1000; }
 
-  /* ───────── 타이머 (조용하게) ───────── */
-  function peek() {
-    timerBtn.classList.add('show');
-    clearTimeout(peekT);
-    peekT = setTimeout(function () { timerBtn.classList.remove('show'); }, 4000);
-  }
-  timerBtn.addEventListener('click', peek);
-
-  function startTicker() {
-    stopTicker();
-    ticker = setInterval(tick, 1000);
-    tick();
-  }
+  /* ───────── 타이머: 상단에 항상 표시 ───────── */
+  function startTicker() { stopTicker(); ticker = setInterval(tick, 500); tick(); }
   function stopTicker() { if (ticker) clearInterval(ticker); ticker = null; }
   function tick() {
     if (!state || state.done) return;
     var left = remaining();
     timeText.textContent = fmtTime(left);
-    timebar.style.width = Math.max(0, Math.min(100, left / TOTAL_SEC * 100)) + '%';
     if (left <= 0) finish();
+  }
+
+  /* ───────── 보드 / 도형 ───────── */
+  function cellHtml(inner) { return '<div class="cell"><svg viewBox="0 0 100 100" aria-hidden="true">' + inner + '</svg></div>'; }
+  var QCELL = '<div class="cell q"><svg viewBox="0 0 100 100" aria-hidden="true"><text x="50" y="67" text-anchor="middle" font-size="54" font-weight="300" fill="#3b5bdb" font-family="system-ui,sans-serif">?</text></svg></div>';
+  function boardHtml(cells) {
+    return '<div class="board" role="img" aria-label="3×3 도형 배열, 오른쪽 아래 칸이 비어 있음">' +
+      cells.map(cellHtml).join('') + QCELL + '</div>';
   }
 
   /* ───────── 표지 ───────── */
   function showCover() {
     screen = 'cover';
     stopTicker();
-    timerBtn.hidden = true;
-    timebar.style.width = '100%';
+    topBar.hidden = true;
     var resumable = state && !state.done && remaining() > 0;
     var hasResult = state && state.done;
+    var demo = G.generateProblem('matrix', 2, 20241123);
     app.innerHTML =
-      '<section class="card">' +
+      '<section class="cover">' +
+      '<div class="hero">' + boardHtml(demo.cells) + '</div>' +
       '<h1>멘사 스타일 IQ 테스트</h1>' +
-      '<p class="sub">' + TOTAL_Q + '문항 · ' + (TOTAL_SEC / 60) + '분 · 뒤로 갈수록 어려워져요</p>' +
+      '<div class="chips"><span>3×3 도형 추론</span><span>' + TOTAL_Q + '문항</span><span>' + (TOTAL_SEC / 60) + '분</span><span>점점 어려워짐</span></div>' +
       (resumable
-        ? '<button class="btn" id="resume">이어서 풀기 (' + esc(state.name) + ', ' + fmtTime(remaining()) + ' 남음)</button>' +
+        ? '<button class="btn" id="resume">이어서 풀기 · ' + esc(state.name) + ' · ' + fmtTime(remaining()) + ' 남음</button>' +
           '<button class="btn ghost" id="fresh">처음부터 새로 시작</button>'
         : '') +
       '<form id="form" autocomplete="off"' + (resumable ? ' hidden' : '') + '>' +
@@ -70,10 +68,10 @@
       '<button class="btn" type="submit">테스트 시작</button>' +
       (hasResult ? '<button class="btn ghost" type="button" id="last">지난 결과 보기</button>' : '') +
       '</form>' +
-      '<ul class="rules">' +
-      '<li>문제는 풀 때마다 새로 만들어져요. 이전·다음으로 오가며 답을 바꿀 수 있어요.</li>' +
-      '<li>시간은 오른쪽 위 시계를 눌러야 보여요. 시간이 끝나면 자동 제출돼요.</li>' +
-      '<li>키보드: 1~6 보기 선택 · ←/→ 이동 · Enter 다음 · T 남은 시간</li>' +
+      '<ul class="tips">' +
+      '<li>8개의 도형 속 규칙을 찾아 빈칸(?)에 들어갈 도형을 고르세요.</li>' +
+      '<li>보기를 누르면 바로 다음 문제로 넘어가요. 이전 문제로 돌아가 답을 바꿀 수도 있어요.</li>' +
+      '<li>키보드: 1~6 보기 선택 · ←/→ 이동</li>' +
       '</ul>' +
       '<p class="notice">재미용 테스트입니다. 멘사(Mensa)와 무관하며 공식 IQ 검사가 아니에요.</p>' +
       '</section>';
@@ -89,7 +87,7 @@
       startTest(name, age);
     });
     if (resumable) {
-      document.getElementById('resume').addEventListener('click', function () { openTest(); });
+      document.getElementById('resume').addEventListener('click', openTest);
       document.getElementById('fresh').addEventListener('click', function () {
         document.getElementById('resume').hidden = true;
         document.getElementById('fresh').hidden = true;
@@ -119,89 +117,67 @@
 
   function openTest() {
     test = G.generateTest(state.seed);
-    timerBtn.hidden = false;
+    topBar.hidden = false;
     startTicker();
     showQuestion();
   }
 
   /* ───────── 문제 화면 ───────── */
-  var QMARK = '<text x="50" y="63" text-anchor="middle" font-size="42" fill="#8a93a3" font-family="system-ui,sans-serif">?</text>';
-  function tile(inner, cls) { return '<div class="tile ' + (cls || '') + '"><svg viewBox="0 0 100 100" aria-hidden="true">' + inner + '</svg></div>'; }
-
-  var PROMPTS = {
-    matrix: '규칙을 찾아 ? 에 들어갈 도형을 고르세요',
-    figseq: '변화의 규칙을 찾아 ? 에 들어갈 도형을 고르세요',
-    series: '규칙을 찾아 ? 에 들어갈 숫자를 고르세요',
-    numgrid: '각 줄에 같은 규칙이 적용돼요. ? 에 들어갈 숫자를 고르세요'
-  };
-
-  function boardHtml(p) {
-    if (p.type === 'matrix') {
-      return '<div class="grid3">' + p.cells.map(function (c) { return tile(c); }).join('') + tile(QMARK, 'q') + '</div>';
-    }
-    if (p.type === 'figseq') {
-      return '<div class="strip six">' + p.cells.map(function (c) { return tile(c); }).join('') + tile(QMARK, 'q') + '</div>';
-    }
-    if (p.type === 'series') {
-      return '<div class="seq">' + p.shown.map(function (n) { return '<span>' + n + '</span>'; }).join('') + '<span class="q">?</span></div>';
-    }
-    return '<div class="ng">' + p.rows.map(function (row) {
-      return row.map(function (n) { return n === null ? '<span class="q">?</span>' : '<span>' + n + '</span>'; }).join('');
-    }).join('') + '</div>';
-  }
-
   function optionsHtml(p, sel) {
-    var numeric = p.type === 'series' || p.type === 'numgrid';
     return '<div class="opts" role="radiogroup" aria-label="보기">' + p.options.map(function (o, i) {
-      var cls = 'opt' + (numeric ? ' nums' : '') + (i === sel ? ' sel' : '');
-      return '<button type="button" class="' + cls + '" role="radio" aria-checked="' + (i === sel) + '" data-i="' + i + '" aria-label="보기 ' + (i + 1) + '">' +
-        '<span class="num">' + (i + 1) + '</span>' + (numeric ? o : tile(o)) + '</button>';
+      return '<button type="button" class="opt' + (i === sel ? ' sel' : '') + '" role="radio" aria-checked="' + (i === sel) +
+        '" data-i="' + i + '" aria-label="보기 ' + (i + 1) + '"><span class="num">' + (i + 1) + '</span>' +
+        '<svg viewBox="0 0 100 100" aria-hidden="true">' + o + '</svg></button>';
     }).join('') + '</div>';
   }
 
   function showQuestion() {
     screen = 'test';
-    var i = state.cur, p = test[i], sel = state.answers[i];
-    var last = i === TOTAL_Q - 1;
-    var side = p.type === 'matrix' ? ' side' : '';
+    locked = false;
+    var i = state.cur, p = test[i], sel = state.answers[i], last = i === TOTAL_Q - 1;
+    countEl.textContent = (i + 1) + ' / ' + TOTAL_Q;
     app.innerHTML =
-      '<div class="qhead"><span>' + (i + 1) + ' / ' + TOTAL_Q + '</span><span></span></div>' +
-      '<p class="prompt">' + PROMPTS[p.type] + '</p>' +
-      '<div class="stage' + side + '">' + boardHtml(p) + optionsHtml(p, sel) + '</div>' +
-      '<div class="nav">' +
+      '<div class="seg" aria-label="문항 이동">' + state.answers.map(function (a, k) {
+        return '<button type="button" data-k="' + k + '" aria-label="' + (k + 1) + '번 문항" class="' + (k === i ? 'cur' : a >= 0 ? 'done' : '') + '"></button>';
+      }).join('') + '</div>' +
+      '<p class="hint">규칙을 찾아 빈칸(?)에 들어갈 도형을 고르세요</p>' +
+      '<div class="stage">' + boardHtml(p.cells) + optionsHtml(p, sel) + '</div>' +
+      '<div class="actions">' +
       '<button type="button" id="prev"' + (i === 0 ? ' disabled' : '') + '>← 이전</button>' +
-      '<button type="button" id="next" class="primary">' + (last ? '제출하기' : '다음 →') + '</button>' +
-      '</div>' +
-      '<nav class="dots" aria-label="문항 이동">' + state.answers.map(function (a, k) {
-        return '<button type="button" data-k="' + k + '" aria-label="' + (k + 1) + '번 문항" class="' + (a >= 0 ? 'done ' : '') + (k === i ? 'cur' : '') + '"></button>';
-      }).join('') + '</nav>';
+      (last ? '<button type="button" id="submit" class="primary">제출하기</button>'
+            : '<button type="button" id="skip">건너뛰기 →</button>') +
+      '</div>';
 
     app.querySelectorAll('.opt').forEach(function (b) {
       b.addEventListener('click', function () { choose(parseInt(b.getAttribute('data-i'), 10)); });
     });
-    document.getElementById('prev').addEventListener('click', function () { go(i - 1); });
-    document.getElementById('next').addEventListener('click', function () { last ? submit() : go(i + 1); });
-    app.querySelectorAll('.dots button').forEach(function (b) {
+    app.querySelectorAll('.seg button').forEach(function (b) {
       b.addEventListener('click', function () { go(parseInt(b.getAttribute('data-k'), 10)); });
     });
+    document.getElementById('prev').addEventListener('click', function () { go(i - 1); });
+    if (last) document.getElementById('submit').addEventListener('click', submit);
+    else document.getElementById('skip').addEventListener('click', function () { go(i + 1); });
     window.scrollTo(0, 0);
   }
 
+  // 보기를 누르면 답을 저장하고 바로 다음 문제로 (마지막 문제는 제출 버튼으로)
   function choose(idx) {
+    if (locked) return;
     var i = state.cur;
-    state.answers[i] = state.answers[i] === idx ? -1 : idx;   // 같은 보기를 다시 누르면 선택 해제
+    state.answers[i] = idx;
     save();
     app.querySelectorAll('.opt').forEach(function (b, k) {
-      var on = k === state.answers[i];
-      b.classList.toggle('sel', on);
-      b.setAttribute('aria-checked', on);
+      b.classList.toggle('sel', k === idx);
+      b.setAttribute('aria-checked', k === idx);
     });
-    var dot = app.querySelectorAll('.dots button')[i];
-    if (dot) dot.classList.toggle('done', state.answers[i] >= 0);
+    if (i < TOTAL_Q - 1) {
+      locked = true;
+      setTimeout(function () { if (screen === 'test' && state.cur === i) go(i + 1); else locked = false; }, ADVANCE_MS);
+    }
   }
 
   function go(k) {
-    if (k < 0 || k >= TOTAL_Q) return;
+    if (k < 0 || k >= TOTAL_Q || screen !== 'test') return;
     state.cur = k; save(); showQuestion();
   }
 
@@ -264,8 +240,7 @@
   function showResult() {
     screen = 'result';
     stopTicker();
-    timerBtn.hidden = true;
-    timebar.style.width = '100%';
+    topBar.hidden = true;
     var r = state.result, iq = r.iq, tier = tierOf(iq);
     var top = fmtPct(topPercent(iq)), bottom = +(100 - top).toFixed(2);
     app.innerHTML =
@@ -297,8 +272,6 @@
     if (k >= '1' && k <= '6') { choose(parseInt(k, 10) - 1); e.preventDefault(); }
     else if (k === 'ArrowLeft') go(state.cur - 1);
     else if (k === 'ArrowRight') go(state.cur + 1);
-    else if (k === 'Enter') { state.cur === TOTAL_Q - 1 ? submit() : go(state.cur + 1); e.preventDefault(); }
-    else if (k === 't' || k === 'T' || k === 'ㅅ') peek();
   });
 
   /* ───────── 시작 ───────── */

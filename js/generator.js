@@ -1,7 +1,14 @@
-/* 멘사 스타일 문제 생성기 — 브라우저와 Node 양쪽에서 동작 (ES 모듈 아님: file:// 에서도 열리도록)
+/* 멘사(레이븐) 스타일 3×3 도형 행렬 생성기 — 브라우저와 Node 양쪽에서 동작 (ES 모듈 아님: file:// 에서도 열리도록)
  *
- * 문제는 "저장된 목록"이 아니라 규칙 조합으로 매번 새로 만들어집니다.
- * 같은 seed → 같은 문제 (재현 가능). 정답은 규칙에서 계산되고, 보기는 서로 다르게 렌더링됩니다.
+ * 구성: 8개 도형을 보여주고 빈칸(9번째)에 들어갈 도형을 보기 6개 중에서 고르는 문제.
+ * 도형 하나는 여러 겹(바깥 도형 + 빗금 + 안쪽 도형 + 점/표식)으로 이루어지고,
+ * 각 겹에는 레이븐 행렬의 대표 규칙이 적용된다.
+ *   · 고정(Constant)      — 같은 값이 유지된다
+ *   · 점진 변화(Progression) — 칸마다 한 단계씩 변한다 (명암, 크기, 점 위치)
+ *   · 3값 순환(Distribute Three) — 한 줄에 세 값이 한 번씩 등장한다 (도형, 빗금)
+ *   · 겹침 연산(Arithmetic) — 3번째 칸 = 1번째와 2번째의 합/XOR/교집합/차집합 (표식 점)
+ * 정답은 규칙에서 계산하고, 별도의 풀이기(solveGrid)가 보이는 8칸만으로 정답이 하나로 정해지는지 다시 확인한다.
+ * 같은 seed → 같은 문제 (재현 가능).
  */
 (function (root) {
   'use strict';
@@ -32,24 +39,13 @@
     };
   }
 
-  function seqOf(n, fn) { var o = []; for (var i = 0; i < n; i++) o.push(fn(i)); return o; }
-
-  /* ───────── 도형 렌더링 (SVG 안쪽 마크업, viewBox 0 0 100 100) ───────── */
+  /* ───────── 그리기 (SVG 안쪽 마크업, viewBox 0 0 100 100) ───────── */
   var INK = '#273142';
+  var HATCH_INK = '#5b667a';
   var FILLS = ['#ffffff', '#b9c3d3', '#273142'];
-  var SIZE_MUL = [0.6, 0.8, 1];
-  var LAYOUT = {
-    1: { r: 30, pos: [[50, 50]] },
-    2: { r: 15, pos: [[30, 50], [70, 50]] },
-    3: { r: 14, pos: [[50, 29], [29, 69], [71, 69]] },
-    4: { r: 13, pos: [[30, 30], [70, 30], [30, 70], [70, 70]] },
-    5: { r: 11, pos: [[26, 26], [74, 26], [50, 50], [26, 74], [74, 74]] },
-    6: { r: 10.5, pos: [[22, 33], [50, 33], [78, 33], [22, 67], [50, 67], [78, 67]] }
-  };
-  var DOTS = [[50, 6], [94, 50], [50, 94], [6, 50]];
+  var SIZE_MUL = [0.65, 1, 1.4];
 
   function f1(n) { return Math.round(n * 10) / 10; }
-
   function polyPts(cx, cy, r, n, rotDeg) {
     var pts = [];
     for (var i = 0; i < n; i++) {
@@ -59,126 +55,149 @@
     return pts.join(' ');
   }
 
-  // shape: 0 원 1 사각 2 삼각 3 마름모 4 오각 5 육각
-  function figure(shape, cx, cy, r, fill, angle) {
-    var st = 'fill="' + FILLS[fill] + '" stroke="' + INK + '" stroke-width="2.4" stroke-linejoin="round"';
-    var s;
-    if (shape === 0) {
-      s = '<circle cx="' + f1(cx) + '" cy="' + f1(cy) + '" r="' + f1(r) + '" ' + st + '/>';
-    } else if (shape === 1) {
-      s = '<rect x="' + f1(cx - r * 0.88) + '" y="' + f1(cy - r * 0.88) + '" width="' + f1(r * 1.76) +
-        '" height="' + f1(r * 1.76) + '" ' + st + '/>';
-    } else if (shape === 2) {
-      s = '<polygon points="' + polyPts(cx, cy, r * 1.15, 3, -90) + '" ' + st + '/>';
-    } else if (shape === 3) {
-      s = '<polygon points="' + polyPts(cx, cy, r * 1.15, 4, -90) + '" ' + st + '/>';
-    } else if (shape === 4) {
-      s = '<polygon points="' + polyPts(cx, cy, r * 1.05, 5, -90) + '" ' + st + '/>';
-    } else {
-      s = '<polygon points="' + polyPts(cx, cy, r * 1.05, 6, 0) + '" ' + st + '/>';
-    }
-    if (angle >= 0) {
-      var a = angle * 45 * Math.PI / 180, L = r * 0.8;
-      s += '<line x1="' + f1(cx - L * Math.cos(a)) + '" y1="' + f1(cy - L * Math.sin(a)) +
-        '" x2="' + f1(cx + L * Math.cos(a)) + '" y2="' + f1(cy + L * Math.sin(a)) +
-        '" stroke="' + (fill === 2 ? '#ffffff' : INK) + '" stroke-width="2.2" stroke-linecap="round"/>';
-    }
+  // 바깥 도형 0 원 1 사각 2 삼각 3 마름모 4 육각 5 오각
+  var OUTER = {
+    0: { tag: 'circle', a: 'cx="50" cy="50" r="40"', c: [50, 50], scale: 1 },
+    1: { tag: 'rect', a: 'x="12" y="12" width="76" height="76" rx="3"', c: [50, 50], scale: 1 },
+    2: { tag: 'polygon', a: 'points="50,10 90,79 10,79"', c: [50, 57], scale: 0.8 },
+    3: { tag: 'polygon', a: 'points="50,10 90,50 50,90 10,50"', c: [50, 50], scale: 0.9 },
+    4: { tag: 'polygon', a: 'points="' + polyPts(50, 50, 40, 6, 0) + '"', c: [50, 50], scale: 1 },
+    5: { tag: 'polygon', a: 'points="' + polyPts(50, 52, 40, 5, -90) + '"', c: [50, 52], scale: 0.95 }
+  };
+
+  function outerSvg(id) {
+    var g = OUTER[id];
+    return '<' + g.tag + ' ' + g.a + ' fill="#ffffff" stroke="' + INK + '" stroke-width="2.8" stroke-linejoin="round"/>';
+  }
+  function clipDef(id) {
+    var g = OUTER[id];
+    return '<defs><clipPath id="k' + id + '"><' + g.tag + ' ' + g.a + '/></clipPath></defs>';
+  }
+  function ln(x1, y1, x2, y2) {
+    return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + HATCH_INK + '" stroke-width="1.4"/>';
+  }
+  // 빗금 0 가로 1 세로 2 / 3 \ 4 격자
+  function hatchLines(type) {
+    var s = '', i;
+    if (type === 0 || type === 4) for (i = 12; i <= 90; i += 7) s += ln(0, i, 100, i);
+    if (type === 1 || type === 4) for (i = 12; i <= 90; i += 7) s += ln(i, 0, i, 100);
+    if (type === 2) for (i = 0; i <= 200; i += 9) s += ln(i, 0, i - 100, 100);
+    if (type === 3) for (i = 0; i <= 200; i += 9) s += ln(i - 100, 0, i, 100);
     return s;
   }
+
+  // 안쪽 도형 0 원 1 사각 2 삼각 3 마름모 4 십자
+  function innerSvg(shape, cx, cy, r, fill) {
+    var st = 'fill="' + FILLS[fill] + '" stroke="' + INK + '" stroke-width="2.4" stroke-linejoin="round"';
+    if (shape === 0) return '<circle cx="' + f1(cx) + '" cy="' + f1(cy) + '" r="' + f1(r) + '" ' + st + '/>';
+    if (shape === 1) {
+      return '<rect x="' + f1(cx - r * 0.9) + '" y="' + f1(cy - r * 0.9) + '" width="' + f1(r * 1.8) + '" height="' + f1(r * 1.8) + '" ' + st + '/>';
+    }
+    if (shape === 2) return '<polygon points="' + polyPts(cx, cy + r * 0.2, r * 1.25, 3, -90) + '" ' + st + '/>';
+    if (shape === 3) return '<polygon points="' + polyPts(cx, cy, r * 1.3, 4, -90) + '" ' + st + '/>';
+    var L = r * 1.2, t = r * 0.42;
+    var p = [[-t, -L], [t, -L], [t, -t], [L, -t], [L, t], [t, t], [t, L], [-t, L], [-t, t], [-L, t], [-L, -t], [-t, -t]]
+      .map(function (q) { return f1(cx + q[0]) + ',' + f1(cy + q[1]); }).join(' ');
+    return '<polygon points="' + p + '" ' + st + '/>';
+  }
+
+  var DOTS = [[50, 4], [96, 50], [50, 96], [4, 50]];
+  var SLOT = [33, 50, 67];
 
   function renderCell(t) {
-    var lay = LAYOUT[t.count], r = lay.r * SIZE_MUL[t.size], s = '';
-    for (var i = 0; i < lay.pos.length; i++) s += figure(t.shape, lay.pos[i][0], lay.pos[i][1], r, t.fill, t.angle);
-    if (t.dot >= 0) s += '<circle cx="' + DOTS[t.dot][0] + '" cy="' + DOTS[t.dot][1] + '" r="4" fill="' + INK + '"/>';
+    var s = '';
+    if (t.pattern >= 0) s += clipDef(t.outer);
+    s += outerSvg(t.outer);
+    if (t.pattern >= 0) s += '<g clip-path="url(#k' + t.outer + ')">' + hatchLines(t.pattern) + '</g>';
+    if (t.inner >= 0) {
+      var g = OUTER[t.outer];
+      s += innerSvg(t.inner, g.c[0], g.c[1], 13 * SIZE_MUL[t.size] * g.scale, t.fill);
+    }
+    if (t.marks >= 0) {
+      for (var i = 0; i < 9; i++) {
+        if (t.marks & (1 << i)) {
+          s += '<circle cx="' + SLOT[i % 3] + '" cy="' + SLOT[Math.floor(i / 3)] + '" r="6.2" fill="' + FILLS[t.fill] +
+            '" stroke="' + INK + '" stroke-width="2.2"/>';
+        }
+      }
+    }
+    if (t.dot >= 0) s += '<circle cx="' + DOTS[t.dot][0] + '" cy="' + DOTS[t.dot][1] + '" r="3.2" fill="' + INK + '"/>';
     return s;
   }
 
-  var NAMES = ['shape', 'fill', 'size', 'count', 'angle', 'dot'];
-  var CORE = ['shape', 'fill', 'size', 'count'];
-  var N_OF = { shape: 3, fill: 3, size: 3, count: 3, angle: 4, dot: 4 };
+  /* ───────── 속성 / 규칙 ───────── */
+  var NAMES = ['outer', 'inner', 'fill', 'size', 'pattern', 'dot'];
+  var ATTR = {
+    outer:   { n: 3, ord: false, pool: [0, 1, 2, 3, 4, 5] },
+    inner:   { n: 3, ord: false, pool: [0, 1, 2, 3, 4] },
+    fill:    { n: 3, ord: true },
+    size:    { n: 3, ord: true },
+    pattern: { n: 3, ord: false, pool: [0, 1, 2, 3, 4] },
+    dot:     { n: 4, ord: true }
+  };
+  var OPS = {
+    or:  function (a, b) { return a | b; },
+    xor: function (a, b) { return a ^ b; },
+    and: function (a, b) { return a & b; },
+    d12: function (a, b) { return a & ~b & 511; },
+    d21: function (a, b) { return b & ~a & 511; }
+  };
 
-  function tupleKey(t) { return NAMES.map(function (n) { return t[n]; }).join('|'); }
+  function popcount(x) { var c = 0; while (x) { c += x & 1; x >>= 1; } return c; }
+  function tupleKey(t) { return NAMES.map(function (n) { return t[n]; }).join('|') + '|' + t.marks; }
+  function copyTuple(t) { var o = {}; NAMES.concat('marks').forEach(function (n) { o[n] = t[n]; }); return o; }
 
-  /* ───────── 도형 문제 공통: 속성 선택 / 보기 만들기 ───────── */
-  function pickVarying(rng, level) {
-    if (level === 1) return [rng.pick(CORE)];
-    var sh = rng.shuffle(NAMES);
-    if (level === 2) return sh.slice(0, 2);
-    return sh.slice(0, rng.chance(0.65) ? 3 : 4);
+  function randSet(rng, k) {
+    var idx = rng.shuffle([0, 1, 2, 3, 4, 5, 6, 7, 8]).slice(0, k), m = 0;
+    idx.forEach(function (i) { m |= 1 << i; });
+    return m;
   }
 
-  function domainOf(spec, nm) {
-    if (nm === 'shape') return spec.shapes;
-    if (nm === 'count') return spec.attrs.count && spec.attrs.count.sum ? [1, 2, 3, 4, 5, 6] : [1, 2, 3];
-    if (nm === 'angle' || nm === 'dot') return [0, 1, 2, 3];
-    return [0, 1, 2];
+  function buildMarks(rng, level) {
+    var op = rng.pick(level === 2 ? ['or', 'xor'] : ['or', 'xor', 'and', 'd12', 'd21']);
+    var lo = op === 'and' ? 4 : op === 'or' || op === 'xor' ? 2 : 3, hi = op === 'and' ? 6 : op === 'or' || op === 'xor' ? 3 : 5;
+    var rows = [], seen = {};
+    for (var tries = 0; rows.length < 3 && tries < 300; tries++) {
+      var s1 = randSet(rng, rng.range(lo, hi)), s2 = randSet(rng, rng.range(lo, hi));
+      var s3 = OPS[op](s1, s2), pc = popcount(s3);
+      if (pc < 1 || pc > 6 || s3 === s1 || s3 === s2 || s1 === s2) continue;
+      var key = s1 + ',' + s2;
+      if (seen[key]) continue;
+      seen[key] = 1; rows.push([s1, s2, s3]);
+    }
+    return rows.length === 3 ? { op: op, rows: rows } : null;
   }
 
-  // 정답 + 오답 5개 → 섞어서 [옵션 튜플들, 정답 인덱스]
-  function makeOptions(rng, correct, spec, level) {
-    var active = NAMES.filter(function (nm) { return spec.attrs[nm]; });
-    var seen = {}; seen[tupleKey(correct)] = true;
-    var distract = [];
-
-    function add(t) {
-      var k = tupleKey(t);
-      if (seen[k]) return false;
-      seen[k] = true; distract.push(t); return true;
+  function buildSpec(rng, level) {
+    var scene = level === 1 ? 'comp' : rng.chance(level === 2 ? 0.7 : 0.5) ? 'comp' : 'overlay';
+    var varying;
+    if (scene === 'comp') {
+      if (level === 1) varying = [rng.pick(['outer', 'inner', 'fill', 'size', 'pattern'])];
+      else if (level === 2) varying = rng.shuffle(NAMES).slice(0, 2);
+      else varying = rng.shuffle(NAMES).slice(0, rng.chance(0.6) ? 3 : 4);
+    } else {
+      var extra = ['outer', 'fill', 'dot'];
+      varying = level === 2 ? (rng.chance(0.5) ? [rng.pick(extra)] : []) : rng.shuffle(extra).slice(0, rng.range(1, 2));
     }
-    function withChange(base, nm) {
-      var vals = domainOf(spec, nm).filter(function (v) { return v !== base[nm]; });
-      var t = {}; NAMES.forEach(function (n) { t[n] = base[n]; });
-      t[nm] = rng.pick(vals); return t;
-    }
-
-    var singles = [];
-    active.forEach(function (nm) {
-      domainOf(spec, nm).forEach(function (v) {
-        if (v !== correct[nm]) { var t = {}; NAMES.forEach(function (n) { t[n] = correct[n]; }); t[nm] = v; singles.push(t); }
-      });
+    var spec = { scene: scene, dom: {}, attrs: {}, marks: null, varying: varying };
+    ['outer', 'inner', 'pattern'].forEach(function (nm) {
+      var pool = nm === 'outer' && scene === 'overlay' ? [0, 1, 4] : ATTR[nm].pool;
+      spec.dom[nm] = rng.shuffle(pool).slice(0, 3);
     });
-    singles = rng.shuffle(singles);
-    var wantSingles = level === 1 ? 5 : 3;
-    for (var i = 0; i < singles.length && distract.length < wantSingles; i++) add(singles[i]);
-
-    var guard = 0;
-    while (distract.length < 5 && guard++ < 400) {
-      var a = rng.pick(active), b = rng.pick(active);
-      if (a === b) continue;
-      add(withChange(withChange(correct, a), b));
-    }
-    for (i = 0; i < singles.length && distract.length < 5; i++) add(singles[i]);
-
-    var all = rng.shuffle([correct].concat(distract.slice(0, 5)));
-    return { options: all, answer: all.indexOf(correct) };
-  }
-
-  /* ───────── 3×3 도형 행렬 ───────── */
-  function buildGridSpec(rng, level) {
-    var varying = pickVarying(rng, level);
-    var sumCount = level === 3 && varying.indexOf('count') >= 0 && varying.indexOf('angle') < 0 && rng.chance(0.5);
-    var spec = { shapes: rng.shuffle([0, 1, 2, 3, 4, 5]).slice(0, 3), attrs: {}, sum: sumCount };
-
+    var active = scene === 'comp' ? ['outer', 'inner', 'fill', 'size'] : ['outer', 'fill'];
+    varying.forEach(function (v) { if (active.indexOf(v) < 0) active.push(v); });
     NAMES.forEach(function (nm) {
-      var n = N_OF[nm], isVar = varying.indexOf(nm) >= 0;
-      if (nm === 'count' && sumCount) {
-        var pairs = [], keys = {};
-        while (pairs.length < 3) {
-          var x = rng.range(1, 3), y = rng.range(1, 3), k = x + ',' + y;
-          if (!keys[k]) { keys[k] = 1; pairs.push([x, y]); }
-        }
-        spec.attrs.count = { sum: true, pairs: pairs };
-      } else if (isVar) {
-        var dr, dc;
+      if (active.indexOf(nm) < 0) { spec.attrs[nm] = null; return; }
+      var n = ATTR[nm].n, a = rng.int(n), dr = 0, dc = 0;
+      if (varying.indexOf(nm) >= 0) {
         do { dr = rng.int(n); dc = rng.int(n); } while ((dr === 0 && dc === 0) || (level === 1 && dc === 0));
-        spec.attrs[nm] = { n: n, a: rng.int(n), dr: dr, dc: dc };
-      } else if (nm === 'angle' || nm === 'dot') {
-        spec.attrs[nm] = null;
-      } else {
-        spec.attrs[nm] = { n: n, a: rng.int(n), dr: 0, dc: 0 };
       }
+      spec.attrs[nm] = { a: a, dr: dr, dc: dc };
     });
-    spec.varying = varying;
+    if (scene === 'overlay') {
+      spec.marks = buildMarks(rng, level);
+      if (!spec.marks) return null;
+    }
     return spec;
   }
 
@@ -187,278 +206,145 @@
     NAMES.forEach(function (nm) {
       var at = spec.attrs[nm];
       if (!at) { t[nm] = -1; return; }
-      if (at.sum) { t.count = c === 0 ? at.pairs[r][0] : c === 1 ? at.pairs[r][1] : at.pairs[r][0] + at.pairs[r][1]; return; }
-      var idx = (at.a + at.dr * r + at.dc * c) % at.n;
-      t[nm] = nm === 'shape' ? spec.shapes[idx] : nm === 'count' ? idx + 1 : idx;
+      var idx = (at.a + at.dr * r + at.dc * c) % ATTR[nm].n;
+      t[nm] = ATTR[nm].ord ? idx : spec.dom[nm][idx];
     });
+    t.marks = spec.marks ? spec.marks.rows[r][c] : -1;
     return t;
   }
 
-  function genMatrix(rng, level) {
-    var spec = buildGridSpec(rng, level);
-    var cells = [];
-    for (var r = 0; r < 3; r++) for (var c = 0; c < 3; c++) cells.push(gridCell(spec, r, c));
-    var correct = cells[8];
-    var op = makeOptions(rng, correct, spec, level);
-    var score = level + Math.min(0.9, 0.12 * spec.varying.length + (spec.sum ? 0.2 : 0));
-    return {
-      type: 'matrix', level: level, score: score, answer: op.answer,
-      fp: 'M' + level + JSON.stringify([spec.shapes, spec.attrs]),
-      cells: cells.slice(0, 8).map(renderCell),
-      options: op.options.map(renderCell),
-      _data: { cells: cells, options: op.options }
-    };
+  /* ───────── 풀이기: 보이는 8칸만 보고 9번째를 추론 (정답이 하나로 정해지는지 검사) ───────── */
+  function perms3(a) {
+    return [[a[0], a[1], a[2]], [a[0], a[2], a[1]], [a[1], a[0], a[2]], [a[1], a[2], a[0]], [a[2], a[0], a[1]], [a[2], a[1], a[0]]];
   }
 
-  /* ───────── 도형 수열 (5개 보고 6번째 맞히기) ───────── */
-  function bounceIdx(n, p, i) { var per = 2 * (n - 1), j = (p + i) % per; return j < n ? j : per - j; }
-
-  function genFigSeq(rng, level) {
-    var varying = pickVarying(rng, level);
-    var spec = { shapes: rng.shuffle([0, 1, 2, 3, 4, 5]).slice(0, 3), attrs: {} };
-    var bounceAt = level === 3 ? rng.pick(varying) : null;
-    NAMES.forEach(function (nm) {
-      var n = N_OF[nm];
-      if (varying.indexOf(nm) >= 0) {
-        if (nm === bounceAt) spec.attrs[nm] = { kind: 'bounce', n: n, p: rng.int(2 * (n - 1)) };
-        else spec.attrs[nm] = { kind: 'lin', n: n, a: rng.int(n), d: rng.range(1, n - 1) };
-      } else if (nm === 'angle' || nm === 'dot') spec.attrs[nm] = null;
-      else spec.attrs[nm] = { kind: 'const', n: n, a: rng.int(n) };
-    });
-
-    function cell(i) {
-      var t = {};
-      NAMES.forEach(function (nm) {
-        var at = spec.attrs[nm];
-        if (!at) { t[nm] = -1; return; }
-        var idx = at.kind === 'const' ? at.a : at.kind === 'lin' ? (at.a + at.d * i) % at.n : bounceIdx(at.n, at.p, i);
-        t[nm] = nm === 'shape' ? spec.shapes[idx] : nm === 'count' ? idx + 1 : idx;
-      });
-      return t;
+  // 값 배열(9칸, 마지막 칸은 무시) → 규칙 (a + dr·행 + dc·열) mod n 에 맞는 모든 가설의 예측값. 판단 불가면 null
+  function predictAttr(nm, vals) {
+    var A = ATTR[nm], n = A.n, preds = {}, maps;
+    if (A.ord) maps = [function (i) { return i; }];
+    else {
+      var D = [];
+      for (var i = 0; i < 8; i++) if (D.indexOf(vals[i]) < 0) D.push(vals[i]);
+      if (D.length === 1) return [D[0]];
+      if (D.length !== 3) return null;
+      maps = perms3(D).map(function (p) { return function (k) { return p[k]; }; });
     }
-    var cells = seqOf(6, cell);
-    var op = makeOptions(rng, cells[5], spec, level);
-    return {
-      type: 'figseq', level: level, score: level + Math.min(0.9, 0.15 * varying.length + (bounceAt ? 0.2 : 0)),
-      answer: op.answer, fp: 'F' + level + JSON.stringify([spec.shapes, spec.attrs]),
-      cells: cells.slice(0, 5).map(renderCell), options: op.options.map(renderCell),
-      _data: { cells: cells, options: op.options }
-    };
-  }
-
-  /* ───────── 숫자 수열 ───────── */
-  function diffs(t) { var o = []; for (var i = 1; i < t.length; i++) o.push(t[i] - t[i - 1]); return o; }
-  function allEq(a) { for (var i = 1; i < a.length; i++) if (a[i] !== a[0]) return false; return a.length > 0; }
-
-  // 단순 규칙들 중 "보여준 항에 모두 들어맞는" 규칙이 예측하는 다음 값들. 출제 의도와 다른 답이 나오면 그 문제는 버린다.
-  function predictNext(t) {
-    var m = t.length, preds = [], d1 = diffs(t), d2 = diffs(d1), d3 = diffs(d2);
-    if (allEq(d1)) preds.push(t[m - 1] + d1[0]);
-    if (d2.length >= 2 && allEq(d2)) preds.push(t[m - 1] + d1[d1.length - 1] + d2[0]);
-    if (d3.length >= 2 && allEq(d3)) {
-      var n2 = d2[d2.length - 1] + d3[0], n1 = d1[d1.length - 1] + n2;
-      preds.push(t[m - 1] + n1);
-    }
-    if (m >= 3 && t[0] !== 0) {
-      var geo = true;
-      for (var i = 1; i < m - 1; i++) if (t[i + 1] * t[0] !== t[i] * t[1]) { geo = false; break; }
-      if (geo && (t[m - 1] * t[1]) % t[0] === 0) preds.push(t[m - 1] * t[1] / t[0]);
-    }
-    if (m >= 4) {
-      var fib = true;
-      for (i = 2; i < m; i++) if (t[i] !== t[i - 1] + t[i - 2]) { fib = false; break; }
-      if (fib) preds.push(t[m - 1] + t[m - 2]);
-      var a = t[1] - t[0], b = t[2] - t[1];
-      if (a !== 0 && b % a === 0) {
-        var k = b / a, j = t[1] - k * t[0], lin = true;
-        for (i = 1; i < m; i++) if (t[i] !== k * t[i - 1] + j) { lin = false; break; }
-        if (lin) preds.push(k * t[m - 1] + j);
-      }
-    }
-    if (m >= 5) {
-      var sub = t.filter(function (_, i) { return (i % 2) === (m % 2); });
-      if (sub.length >= 3) {
-        var ds = diffs(sub);
-        if (allEq(ds)) preds.push(sub[sub.length - 1] + ds[0]);
-        if (sub[0] !== 0) {
-          var g = true;
-          for (i = 1; i < sub.length - 1; i++) if (sub[i + 1] * sub[0] !== sub[i] * sub[1]) { g = false; break; }
-          if (g && (sub[sub.length - 1] * sub[1]) % sub[0] === 0) preds.push(sub[sub.length - 1] * sub[1] / sub[0]);
+    maps.forEach(function (map) {
+      for (var a = 0; a < n; a++) for (var dr = 0; dr < n; dr++) for (var dc = 0; dc < n; dc++) {
+        var ok = true;
+        for (var r = 0; r < 3 && ok; r++) for (var c = 0; c < 3; c++) {
+          if (r === 2 && c === 2) continue;
+          if (map((a + dr * r + dc * c) % n) !== vals[r * 3 + c]) { ok = false; break; }
         }
+        if (ok) preds[map((a + 2 * dr + 2 * dc) % n)] = 1;
       }
-    }
-    return preds;
+    });
+    return Object.keys(preds).map(Number);
   }
 
-  var PRIMES = [2, 3, 5, 7, 11, 13, 17, 19];
-  var SGEN = {
-    arith: function (r) {
-      var neg = r.chance(0.3), d = r.range(2, 14) * (neg ? -1 : 1), s = neg ? r.range(70, 160) : r.range(1, 99);
-      return { t: seqOf(6, function (i) { return s + d * i; }), shown: 5, sc: 0.1 };
-    },
-    geo: function (r) {
-      var q = r.pick([2, 3, 4]), s = r.range(1, 9);
-      return { t: seqOf(6, function (i) { return s * Math.pow(q, i); }), shown: 5, sc: 0.3 };
-    },
-    altpm: function (r) {
-      var a = r.range(4, 16), b = r.range(1, a - 1), t = [r.range(5, 70)];
-      for (var i = 1; i < 7; i++) t.push(t[i - 1] + (i % 2 ? a : -b));
-      return { t: t, shown: 6, sc: 0.5 };
-    },
-    quad: function (r) {
-      var d0 = r.range(1, 8), c = r.range(1, 5), t = [r.range(1, 30)];
-      for (var i = 0; i < 6; i++) t.push(t[i] + d0 + c * i);
-      return { t: t, shown: 6, sc: 0.1 };
-    },
-    fib: function (r) {
-      var a = r.range(1, 12), b = r.range(1, 12); if (b === a) b++;
-      var t = [a, b]; for (var i = 2; i < 7; i++) t.push(t[i - 1] + t[i - 2]);
-      return { t: t, shown: 6, sc: 0.3 };
-    },
-    linrec: function (r) {
-      var k = r.pick([2, 3, 4]), j = r.pick([-5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6]), t = [r.range(2, 9)];
-      for (var i = 1; i < 7; i++) t.push(k * t[i - 1] + j);
-      return { t: t, shown: 6, sc: 0.5 };
-    },
-    interleave: function (r) {
-      var a0 = r.range(1, 40), da = r.range(2, 12), b0 = r.range(1, 40), db = r.range(2, 13);
-      return { t: seqOf(8, function (i) { return i % 2 ? b0 + db * ((i - 1) / 2) : a0 + da * (i / 2); }), shown: 7, sc: 0.7 };
-    },
-    cube: function (r) {
-      var s = r.range(1, 4), c = r.range(0, 40);
-      return { t: seqOf(7, function (i) { return Math.pow(i + s, 3) + c; }), shown: 6, sc: 0.2 };
-    },
-    altops: function (r) {
-      var q = r.pick([2, 3]), b = r.range(1, 12), t = [r.range(1, 12)];
-      for (var i = 1; i < 8; i++) t.push(i % 2 ? t[i - 1] * q : t[i - 1] + b);
-      return { t: t, shown: 7, sc: 0.5 };
-    },
-    imix: function (r) {
-      var s = r.range(1, 5), q = r.pick([2, 3]), b0 = r.range(1, 60), db = r.range(2, 14);
-      return { t: seqOf(9, function (i) { return i % 2 ? b0 + db * ((i - 1) / 2) : s * Math.pow(q, i / 2); }), shown: 8, sc: 0.8 };
-    },
-    sqdiff: function (r) {
-      var s = r.range(0, 3), t = [r.range(1, 40)];
-      for (var i = 1; i < 7; i++) t.push(t[i - 1] + Math.pow(i + s, 2));
-      return { t: t, shown: 6, sc: 0.4 };
-    },
-    fibplus: function (r) {
-      var c = r.range(1, 6), t = [r.range(1, 9), r.range(1, 9)];
-      for (var i = 2; i < 7; i++) t.push(t[i - 1] + t[i - 2] + c);
-      return { t: t, shown: 6, sc: 0.6 };
-    },
-    primes: function (r) {
-      var t = [r.range(1, 60)];
-      for (var i = 1; i < 8; i++) t.push(t[i - 1] + PRIMES[i - 1]);
-      return { t: t, shown: 7, sc: 0.9 };
-    }
-  };
-  var SLEVEL = { 1: ['arith', 'geo', 'altpm'], 2: ['quad', 'fib', 'linrec', 'interleave'], 3: ['cube', 'altops', 'imix', 'sqdiff', 'fibplus', 'primes'] };
-
-  function numericOptions(rng, answer, extras, avoid) {
-    var seen = {}; seen[answer] = true;
-    (avoid || []).forEach(function (v) { seen[v] = true; });
-    var cand = rng.shuffle(extras.filter(function (v) { return isFinite(v) && Math.floor(v) === v && Math.abs(v) < 1e6; }));
-    var out = [];
-    cand.forEach(function (v) { if (!seen[v] && out.length < 5) { seen[v] = true; out.push(v); } });
-    var guard = 0;
-    while (out.length < 5 && guard++ < 200) {
-      var v = answer + rng.range(-15, 15);
-      if (!seen[v] && v >= 0) { seen[v] = true; out.push(v); }
-    }
-    var all = rng.shuffle([answer].concat(out));
-    return { options: all, answer: all.indexOf(answer) };
-  }
-
-  function genSeries(rng, level) {
-    for (var tries = 0; tries < 80; tries++) {
-      var key = rng.pick(SLEVEL[level]), g = SGEN[key](rng);
-      var shown = g.t.slice(0, g.shown), ans = g.t[g.shown];
-      var ok = g.t.every(function (v) { return v >= 0 && v < 20000; });
-      if (!ok) continue;
-      var preds = predictNext(shown);
-      if (preds.some(function (p) { return p !== ans; })) continue;
-      var last = shown[shown.length - 1], ld = last - shown[shown.length - 2], fd = shown[1] - shown[0];
-      var extras = [ans + 1, ans - 1, ans + 2, ans - 2, ans + 3, ans - 3, last + ld, last + fd, last * 2, last + 1,
-        last + ld + 1, last + ld - 1, ans + ld, ans - ld, ans * 2, last + (ans - last) * 2];
-      var op = numericOptions(rng, ans, extras, shown);
-      if (op.options.length !== 6) continue;
-      return {
-        type: 'series', level: level, score: level + g.sc, answer: op.answer,
-        fp: 'S' + key + shown.join(','), shown: shown, options: op.options
-      };
-    }
-    throw new Error('series generation failed');
-  }
-
-  /* ───────── 숫자 표 (각 행에 같은 규칙) ───────── */
-  var NG = [
-    { id: 'add', lv: 1, f: function (a, b) { return a + b; }, gen: function (r) { return [r.range(2, 20), r.range(2, 20)]; } },
-    { id: 'sub', lv: 1, f: function (a, b) { return a - b; }, gen: function (r) { var b = r.range(2, 15); return [b + r.range(2, 20), b]; } },
-    { id: 'mul', lv: 1, f: function (a, b) { return a * b; }, gen: function (r) { return [r.range(2, 9), r.range(2, 9)]; } },
-    { id: '2ab', lv: 1, f: function (a, b) { return 2 * a + b; }, gen: function (r) { return [r.range(2, 15), r.range(2, 15)]; } },
-    { id: 'x2sum', lv: 2, f: function (a, b) { return (a + b) * 2; }, gen: function (r) { return [r.range(2, 20), r.range(2, 20)]; } },
-    { id: 'mulsub', lv: 2, f: function (a, b) { return a * b - a; }, gen: function (r) { return [r.range(3, 9), r.range(2, 9)]; } },
-    { id: 'muladd', lv: 2, f: function (a, b) { return a * b + b; }, gen: function (r) { return [r.range(2, 9), r.range(2, 9)]; } },
-    { id: 'sqadd', lv: 2, f: function (a, b) { return a * a + b; }, gen: function (r) { return [r.range(2, 9), r.range(1, 9)]; } },
-    { id: 'sqsub', lv: 3, f: function (a, b) { return a * a - b * b; }, gen: function (r) { var b = r.range(1, 8); return [r.range(b + 1, 9), b]; } },
-    { id: 'sumsq', lv: 3, f: function (a, b) { return a * a + b * b; }, gen: function (r) { return [r.range(2, 9), r.range(2, 9)]; } },
-    { id: 'mulsum', lv: 3, f: function (a, b) { return a * b + a + b; }, gen: function (r) { return [r.range(2, 9), r.range(2, 9)]; } },
-    { id: 'sumb', lv: 3, f: function (a, b) { return (a + b) * b; }, gen: function (r) { return [r.range(2, 9), r.range(2, 9)]; } },
-    { id: '3a-b', lv: 3, f: function (a, b) { return 3 * a - b; }, gen: function (r) { var b = r.range(1, 12); return [r.range(Math.ceil((b + 1) / 3), 15), b]; } }
-  ];
-
-  function genNumGrid(rng, level) {
-    var pool = NG.filter(function (g) { return g.lv === level; });
-    for (var tries = 0; tries < 80; tries++) {
-      var rule = rng.pick(pool), rows = [], keys = {};
-      while (rows.length < 3) {
-        var ab = rule.gen(rng), k = ab.join(',');
-        if (!keys[k]) { keys[k] = 1; rows.push([ab[0], ab[1], rule.f(ab[0], ab[1])]); }
-      }
-      if (rows.some(function (x) { return x[2] < 0 || x[2] > 500; })) continue;
-      var ans = rows[2][2], a3 = rows[2][0], b3 = rows[2][1], clash = false, wrongs = [];
-      NG.forEach(function (g) {
-        var fits = g.f(rows[0][0], rows[0][1]) === rows[0][2] && g.f(rows[1][0], rows[1][1]) === rows[1][2];
-        var v = g.f(a3, b3);
-        if (fits && v !== ans) clash = true;
-        if (!fits && v !== ans && v >= 0) wrongs.push(v);
+  function solveGrid(cells) {
+    var pred = {}, ok = true;
+    NAMES.forEach(function (nm) {
+      if (cells[0][nm] === -1) { pred[nm] = -1; return; }
+      var p = predictAttr(nm, cells.map(function (c) { return c[nm]; }));
+      if (!p || p.length !== 1) ok = false; else pred[nm] = p[0];
+    });
+    if (cells[0].marks === -1) pred.marks = -1;
+    else {
+      var m = cells.map(function (c) { return c.marks; }), res = {};
+      Object.keys(OPS).forEach(function (k) {
+        var f = OPS[k], good = true;
+        for (var r = 0; r < 2; r++) if (f(m[r * 3], m[r * 3 + 1]) !== m[r * 3 + 2]) good = false;
+        if (good) res[f(m[6], m[7])] = 1;
       });
-      if (clash) continue;
-      var extras = wrongs.concat([ans + 1, ans - 1, ans + 2, ans - 2, ans + 10, ans - 10, ans + 3, ans - 3]);
-      var op = numericOptions(rng, ans, extras, []);
-      if (op.options.length !== 6) continue;
-      return {
-        type: 'numgrid', level: level, score: level + (pool.indexOf(rule) + 1) / (pool.length + 1) * 0.9, answer: op.answer,
-        fp: 'N' + rule.id + JSON.stringify(rows), rows: [rows[0], rows[1], [rows[2][0], rows[2][1], null]], options: op.options
-      };
+      var ks = Object.keys(res);
+      if (ks.length !== 1) ok = false; else pred.marks = +ks[0];
     }
-    throw new Error('numgrid generation failed');
+    return { ok: ok, pred: pred };
+  }
+
+  /* ───────── 보기 (정답 1 + 오답 5) ───────── */
+  function domainOf(spec, nm) { return ATTR[nm].ord ? (nm === 'dot' ? [0, 1, 2, 3] : [0, 1, 2]) : spec.dom[nm]; }
+
+  function makeOptions(rng, correct, cells, spec, level) {
+    var seen = {}; seen[tupleKey(correct)] = true;
+    var out = [];
+    function add(t) { var k = tupleKey(t); if (seen[k]) return false; seen[k] = true; out.push(t); return true; }
+
+    var active = NAMES.filter(function (nm) { return correct[nm] !== -1; });
+    var singles = [];
+    active.forEach(function (nm) {
+      domainOf(spec, nm).forEach(function (v) {
+        if (v !== correct[nm]) { var t = copyTuple(correct); t[nm] = v; singles.push(t); }
+      });
+    });
+    var opResults = [];
+    if (spec.marks) {
+      for (var i = 0; i < 9; i++) {
+        var m = correct.marks ^ (1 << i);
+        if (popcount(m) >= 1) { var tt = copyTuple(correct); tt.marks = m; singles.push(tt); }
+      }
+      Object.keys(OPS).forEach(function (k) {
+        var m2 = OPS[k](cells[6].marks, cells[7].marks);
+        if (m2 && m2 !== correct.marks) { var t2 = copyTuple(correct); t2.marks = m2; opResults.push(t2); }
+      });
+    }
+    singles = rng.shuffle(singles);
+    var neighbors = rng.shuffle([cells[7], cells[5]].map(copyTuple));
+
+    var wantNb = level === 3 ? 2 : 1;
+    neighbors.slice(0, wantNb).forEach(add);
+    rng.shuffle(opResults).slice(0, 2).forEach(add);
+    for (var j = 0; j < singles.length && out.length < (level === 1 ? 5 : 4); j++) add(singles[j]);
+
+    var guard = 0;
+    while (out.length < 5 && guard++ < 400) {
+      var a = rng.pick(active), b = rng.pick(active);
+      if (a === b) continue;
+      var base = copyTuple(correct);
+      base[a] = rng.pick(domainOf(spec, a).filter(function (v) { return v !== correct[a]; }));
+      base[b] = rng.pick(domainOf(spec, b).filter(function (v) { return v !== correct[b]; }));
+      add(base);
+    }
+    for (j = 0; j < singles.length && out.length < 5; j++) add(singles[j]);
+    if (out.length < 5) return null;
+
+    var all = rng.shuffle([correct].concat(out.slice(0, 5)));
+    return { options: all, answer: all.indexOf(correct) };
   }
 
   /* ───────── 문제 / 시험 생성 ───────── */
+  function genMatrix(rng, level) {
+    for (var tries = 0; tries < 300; tries++) {
+      var spec = buildSpec(rng, level);
+      if (!spec) continue;
+      var cells = [];
+      for (var r = 0; r < 3; r++) for (var c = 0; c < 3; c++) cells.push(gridCell(spec, r, c));
+      var sol = solveGrid(cells);
+      if (!sol.ok) continue;
+      var correct = cells[8], same = sol.pred.marks === correct.marks;
+      NAMES.forEach(function (nm) { if (sol.pred[nm] !== correct[nm]) same = false; });
+      if (!same) continue;
+      var op = makeOptions(rng, correct, cells, spec, level);
+      if (!op) continue;
+      return {
+        type: 'matrix', level: level, answer: op.answer,
+        score: level + Math.min(0.9, 0.12 * spec.varying.length + (spec.marks ? 0.25 : 0)),
+        fp: 'M' + level + JSON.stringify([spec.scene, spec.dom, spec.attrs, spec.marks]),
+        cells: cells.slice(0, 8).map(renderCell), options: op.options.map(renderCell),
+        _data: { cells: cells, options: op.options, scene: spec.scene }
+      };
+    }
+    throw new Error('matrix generation failed');
+  }
+
   function generateProblem(type, level, seed) {
-    var rng = makeRng(seed), p;
-    if (type === 'matrix') p = genMatrix(rng, level);
-    else if (type === 'figseq') p = genFigSeq(rng, level);
-    else if (type === 'series') p = genSeries(rng, level);
-    else p = genNumGrid(rng, level);
+    var p = genMatrix(makeRng(seed), level);
     p.seed = seed;
     return p;
   }
 
   var PLAN = [[1, 10], [2, 12], [3, 8]];
-  var WEIGHTS = {
-    1: [['matrix', 0.35], ['figseq', 0.30], ['series', 0.20], ['numgrid', 0.15]],
-    2: [['matrix', 0.40], ['figseq', 0.25], ['series', 0.20], ['numgrid', 0.15]],
-    3: [['matrix', 0.45], ['figseq', 0.25], ['series', 0.20], ['numgrid', 0.10]]
-  };
-
-  function pickType(rng, level) {
-    var x = rng.next(), acc = 0, w = WEIGHTS[level];
-    for (var i = 0; i < w.length; i++) { acc += w[i][1]; if (x < acc) return w[i][0]; }
-    return w[0][0];
-  }
 
   // 한 번의 시험: 쉬움 10 → 보통 12 → 어려움 8, 각 구간 안에서도 쉬운 것부터. 한 시험 안에 같은 문제 없음.
   function generateTest(seed) {
@@ -468,7 +354,7 @@
       for (var n = 0; n < pl[1]; n++) {
         var p;
         for (var tries = 0; tries < 30; tries++) {
-          p = generateProblem(pickType(rng, level), level, rng.int(2147483647));
+          p = generateProblem('matrix', level, rng.int(2147483647));
           if (!seen[p.fp]) break;
         }
         seen[p.fp] = true;
@@ -483,7 +369,7 @@
 
   var api = {
     makeRng: makeRng, generateProblem: generateProblem, generateTest: generateTest,
-    predictNext: predictNext, TOTAL: 30, LEVELS: PLAN
+    solveGrid: solveGrid, tupleKey: tupleKey, TOTAL: 30, LEVELS: PLAN
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MensaGen = api;
