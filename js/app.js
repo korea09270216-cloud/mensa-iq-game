@@ -6,7 +6,7 @@
   var TOTAL_Q = G.TOTAL;            // 35문항
   var TOTAL_SEC = 25 * 60;          // 제한시간 25분 (멘사 온라인 연습 테스트: 35문항 25분)
   var ADVANCE_MS = 220;             // 보기를 누르면 이 시간 뒤에 다음 문제로
-  var KEY = 'mensa-iq-game:v4';
+  var KEY = 'mensa-iq-game:v5';
   var WEIGHT = { 1: 1, 2: 1.5, 3: 2 };
   var MAX_SCORE = G.LEVELS.reduce(function (s, l) { return s + WEIGHT[l[0]] * l[1]; }, 0);   // 9×1 + 14×1.5 + 12×2 = 54
 
@@ -51,7 +51,7 @@
     topBar.hidden = true;
     var resumable = state && !state.done && remaining() > 0;
     var hasResult = state && state.done;
-    var demo = G.generateProblem('matrix', 1, 6);
+    var demo = G.generateProblem(0, 6);
     app.innerHTML =
       '<section class="cover">' +
       '<div class="hero">' + boardHtml(demo.cells) + '</div>' +
