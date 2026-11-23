@@ -17,7 +17,8 @@ function checkProblem(p) {
   if (!(p.answer >= 0 && p.answer < 6)) fail('정답 인덱스 이상: ' + p.fp);
   if (/NaN|undefined|Infinity/.test(JSON.stringify(p.cells) + JSON.stringify(p.options))) fail('NaN/undefined 포함: ' + p.fp);
 
-  var d = p._data, sol = G.solve(p);
+  // Withhold the ninth cell from the solver, rather than trusting it to ignore the answer.
+  var d = p._data, sol = G.solve({ _data: { cells: d.cells.slice(0, 8), meta: d.meta } });
   if (!sol.ok) { fail('풀이기가 정답을 하나로 못 정함: ' + p.fp); return; }
   var matches = d.options.filter(sol.match);
   if (matches.length !== 1) fail('풀이기 예측과 일치하는 보기 수 != 1 (' + matches.length + '): ' + p.fp);
@@ -25,6 +26,7 @@ function checkProblem(p) {
   if (!sol.match(d.cells[8])) fail('빈칸의 실제 값과 풀이기 결과 불일치: ' + p.fp);
   var vis = d.cells.slice(0, 8).filter(function (c) { return c.k === d.cells[8].k; }).length;
   if (vis) fail('정답이 이미 보이는 칸과 같음: ' + p.fp);
+  if (p.cells.indexOf(p.options[p.answer]) !== -1) fail('정답 그림이 보이는 칸과 같음: ' + p.fp);
 }
 
 var perSlot = [], perLevel = { 1: {}, 2: {}, 3: {} }, t0 = Date.now();

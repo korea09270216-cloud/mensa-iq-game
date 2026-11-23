@@ -1,6 +1,6 @@
 /* 멘사 스타일 3×3 도형 행렬 생성기 — 브라우저와 Node 양쪽에서 동작 (ES 모듈 아님: file:// 에서도 열리도록)
  *
- * 실제 멘사 온라인 연습 테스트(35문항)를 하나씩 직접 풀어 본 뒤, 문항 번호 순서를 그대로 따르는 "35칸 설계도"로 만들었다.
+ * 참고 테스트 35문항의 규칙 계열을 전사·검증한 설계도. 마지막 문항의 공개 풀이 참고 내역은 README에 표시한다.
  * 칸마다 규칙 계열이 다르다 (직교 → 이중 라틴 → 회전+속성 → 합성 → 겹침/XOR/분할 → 두 층 연산).
  * 문제 이미지·문항을 복사하지 않고, 규칙을 조합해 매번 새로 만든다.
  *
@@ -265,6 +265,36 @@
   }
 
   /* ───────── 속성형 장면들 ───────── */
+  // 위/아래 점 묶음은 서로 독립적인 3주기 패턴 (Q7).
+  function sceneDotGroups(rng) {
+    var groups = rng.shuffle([[0, 4], [2], [1, 2, 3]]);
+    return { name: 'dot-groups', attrs: [{ n: 3, ord: false }, { n: 3, ord: false }],
+      rules: [classRule(rng, 'latin'), classRule(rng, 'latin')], dup: false,
+      used: [[0, 1, 2], [0, 1, 2]], sig: [groups], render: function (v) {
+        var s = ''; for (var i = 0; i < 5; i++) s += C(18 + i * 16, 50, 4.5, BLACK, 0);
+        [0, 1].forEach(function (j) { groups[v[j]].forEach(function (x) { s += C(18 + x * 16, j ? 66 : 34, 4.5, BLACK, 0); }); });
+        return s;
+      } };
+  }
+  function sceneHalfArrow(rng) {
+    var fillRule=classRule(rng,rng.pick(['row','col']),true), first=rng.int(2);fillRule.map=[first,1-first,first];
+    return { name: 'half-arrow', attrs: [{ n: 4, ord: true }, { n: 2, ord: false }],
+      rules: [addRule(rng, 4, 'both'), fillRule], dup: true,
+      used: [[0, 1, 2, 3], [0, 1]], sig: [], render: function (v) {
+        var left = v[1] === 0, right = v[1] === 1;
+        return Rot(v[0] * 90, Pg('50,14 22,80 50,64', left ? BLACK : WHITE) + Pg('50,14 78,80 50,64', right ? BLACK : WHITE));
+      } };
+  }
+  function sceneLineCounts(rng) {
+    // Keep counts within 0..4 so the arithmetic never wraps on the page.
+    var h = rng.shuffle([0, 1, 2]), v = rng.shuffle([0, 1, 2]), ch = rng.shuffle([0, 1, 2]), cv = rng.shuffle([0, 1, 2]);
+    return { name: 'line-counts', attrs: [{ n: 5, ord: true }, { n: 5, ord: true }],
+      rules: [{ t: 'add', n: 5, base: 0, R: h, C: ch }, { t: 'add', n: 5, base: 0, R: v, C: cv }], dup: true,
+      used: [[0, 1, 2, 3, 4], [0, 1, 2, 3, 4]], sig: [], render: function (a) {
+        var s = ''; for (var i = 0; i < a[0]; i++) { var y = 50 + (i - (a[0] - 1) / 2) * 13; s += L(18, y, 82, y, 'butt'); }
+        for (var j = 0; j < a[1]; j++) { var x = 50 + (j - (a[1] - 1) / 2) * 13; s += L(x, 18, x, 82, 'butt'); } return s;
+      } };
+  }
   function ruleKinds(rng, pattern) {
     if (pattern === 'orth') return rng.chance(0.5) ? ['row', 'col'] : ['col', 'row'];
     if (pattern === 'mix') return rng.chance(0.5) ? ['row', 'latin'] : ['latin', 'col'];
@@ -453,7 +483,7 @@
       var s = '', k = 0;
       for (var i = 0; i < 3; i++) {
         if (i === v[0]) s += C(X[i], 50, 9, BLACK, 0);
-        else { s += T[pairs[v[1]][k]](X[i]); k++; }
+        else { k = (i - v[0] + 3) % 3 - 1; s += T[pairs[v[1]][k]](X[i]); }
       }
       return s;
     };
@@ -527,9 +557,11 @@
 
   // 한 겹(layer)의 풀이기: 보이는 8칸만 보고 9번째를 추론. 가설이 하나로 모이면 ok
   function solveLayer(m, meta) {
+    if(meta.fold)return solveFold(m);
+    if(meta.diagonalUnion)return solveDiagonalUnion(m,meta.nb);
     var preds = {}, full = meta.full, check = null, fits = 0;
     (meta.ops || []).forEach(function (k) {
-      var f = OPS[k];
+      var f = meta.postPerm ? function(a,b,full){return permuteBits(OPS[k](a,b,full),meta.postPerm);} : OPS[k];
       if (f(m[0], m[1], full) === m[2] && f(m[3], m[4], full) === m[5]) preds[f(m[6], m[7], full)] = 1;
       if (f(m[0], m[3], full) === m[6] && f(m[1], m[4], full) === m[7]) preds[f(m[2], m[5], full)] = 1;
     });
@@ -572,6 +604,7 @@
   }
 
   function solveMask(d) {
+    if(d.meta.kind==='occluded')return solveOccluded(d);
     var layers = d.meta.layers.length, preds = [], ok = true;
     for (var li = 0; li < layers; li++) {
       var s = solveLayer(d.cells.map(function (c) { return c.m[li]; }), d.meta.layers[li]);
@@ -606,6 +639,27 @@
 
   // 요소 모음 (테마). 각 층(layer)의 비트가 켜져 있으면 해당 요소를 그린다.
   var THEMES = {
+    compositeEdges: { nbs:[8],draw:function(ms){var p=[[20,30,80,30],[20,70,80,70],[20,30,20,70],[80,30,80,70],[20,30,50,70],[80,30,50,70],[20,70,50,30],[80,70,50,30]];return bitsOf(ms[0],8).map(function(i){var e=p[i];return L(e[0],e[1],e[2],e[3],'square');}).join('');} },
+    horizontal2: { nbs: [4,4], draw: function(ms){
+      var s=L(12,50,88,50,'butt'),p=[[24,36],[76,36],[24,64],[76,64]];
+      bitsOf(ms[0],4).forEach(function(i){s+=Rc(p[i][0]-10,p[i][1]-10,20,20,WHITE);});
+      bitsOf(ms[1],4).forEach(function(i){s+=C(p[i][0],p[i][1],4.3,BLACK,0);});return s;
+    } },
+    gridEdges: { nbs: [12], draw: function (ms) {
+      var s = '', edges = [];
+      for (var y = 0; y < 3; y++) for (var x = 0; x < 2; x++) edges.push([22 + x * 28, 22 + y * 28, 50 + x * 28, 22 + y * 28]);
+      for (var x2 = 0; x2 < 3; x2++) for (var y2 = 0; y2 < 2; y2++) edges.push([22 + x2 * 28, 22 + y2 * 28, 22 + x2 * 28, 50 + y2 * 28]);
+      bitsOf(ms[0], 12).forEach(function (i) { var e = edges[i]; s += L(e[0], e[1], e[2], e[3], 'square'); }); return s;
+    } },
+    chainEdges: { nbs: [8], draw: function (ms) {
+      var p = [[20,50,50,50],[50,50,50,20],[50,20,80,50],[50,20,20,50],[80,50,50,80],[50,80,50,50],[50,80,20,50],[50,50,80,50]];
+      return bitsOf(ms[0], 8).map(function (i) { var e=p[i];return L(e[0],e[1],e[2],e[3],'square'); }).join('');
+    } },
+    ringsDots: { nbs: [4, 4], draw: function (ms) {
+      var s=Rc(18,18,64,64,'none'), rings=[[50,30],[70,50],[50,70],[30,50]], dots=[[26,26],[74,26],[74,74],[26,74]];
+      bitsOf(ms[0],4).forEach(function(i){s+=C(rings[i][0],rings[i][1],7,WHITE);});
+      bitsOf(ms[1],4).forEach(function(i){s+=C(dots[i][0],dots[i][1],3.5,BLACK,0);});return s;
+    } },
     shapes: { nbs: [8], draw: function (ms) {      // 세로 타원, 가로 타원, 상자, 고리, 점, 마름모, 플러스, 모서리 점 4개
       var P = ['<ellipse cx="50" cy="50" rx="11" ry="25" fill="none" stroke="#000" stroke-width="' + SW + '"/>',
         '<ellipse cx="50" cy="50" rx="25" ry="11" fill="none" stroke="#000" stroke-width="' + SW + '"/>',
@@ -665,7 +719,7 @@
     if (!cfg.dup) { var all = {}; data.forEach(function (x) { all[x.k] = 1; }); if (Object.keys(all).length !== 9) return null; }
 
     var nbs = meta.layers.map(function (l) { return l.nb; }), full = meta.layers.map(function (l) { return l.full; });
-    function mk(m) { for (var li = 0; li < m.length; li++) if (m[li] <= 0 || m[li] > full[li]) return null; return maskData(m); }
+    function mk(m) { for (var li = 0; li < m.length; li++) if (m[li] < (cfg.allowZero?0:1) || m[li] > full[li]) return null; if(cfg.valid&&!cfg.valid(m))return null;return maskData(m); }
     var toggles = [], alt = [], dbl = [], opt;
     if (meta.layers[0].isHankel) {
       var pcs = [3, 4, 6, 7, 2], dist = [];
@@ -760,7 +814,8 @@
   }
 
   // 요소 겹침: arr = 'last'(3번째=연산) | 'mid'(가운데=합집합) | 'part'(세 칸이 요소를 나눠 가짐). layers 층마다 연산을 따로 가질 수 있음
-  function genOverlay(rng, level, theme, arr, opsPerLayer) {
+  function permuteBits(m,p){var out=0;p.forEach(function(to,i){if(m&(1<<i))out|=1<<to;});return out;}
+  function genOverlay(rng, level, theme, arr, opsPerLayer, postPerm) {
     var th = THEMES[theme], layers = [], cellsL = [];
     for (var li = 0; li < th.nbs.length; li++) {
       var nb = th.nbs[li], full = (1 << nb) - 1, op = opsPerLayer[li], rows = [], seen = {};
@@ -779,6 +834,7 @@
         } else {
           var lo = op === 'and' ? 3 : op === 'or' && level === 1 ? 1 : 2, hi = op === 'and' ? Math.min(5, nb - 1) : op === 'or' && level === 1 ? 2 : op === 'or' || op === 'xor' ? 3 : 4;
           var a = randMask(rng, nb, rng.range(lo, hi)), b = randMask(rng, nb, rng.range(lo, hi)), res = OPS[op](a, b, full);
+          if(postPerm)res=permuteBits(res,postPerm);
           if (res === 0 || res === a || res === b || a === b || popcount(res) > 5) continue;
           row = [a, b, res];
         }
@@ -787,17 +843,123 @@
         seen[key] = 1; rows.push(row);
       }
       if (rows.length < 3) return null;
-      layers.push({ nb: nb, full: full, rows: rows, ops: ['or', 'xor', 'and', 'd12', 'd21'], mid: true, part: true });
+      layers.push({ nb: nb, full: full, rows: rows, ops: ['or', 'xor', 'and', 'd12', 'd21'], mid: !postPerm, part: !postPerm, postPerm:postPerm });
     }
     var tr = level > 1 && rng.chance(0.5);
     for (var r = 0; r < 3; r++) for (var c = 0; c < 3; c++) cellsL.push(layers.map(function (ly) { return tr ? ly.rows[c][r] : ly.rows[r][c]; }));
     return finishMask(rng, level, {
-      meta: { layers: layers.map(function (ly) { return { nb: ly.nb, full: ly.full, ops: ly.ops, mid: ly.mid, part: ly.part }; }) },
+      meta: { layers: layers.map(function (ly) { return { nb: ly.nb, full: ly.full, ops: ly.ops, mid: ly.mid, part: ly.part, postPerm:ly.postPerm }; }) },
       render: function (d) { return th.draw(d.m); }
-    }, cellsL, 'ov-' + theme + '-' + arr, [theme, arr, opsPerLayer, layers.map(function (ly) { return ly.rows; }), tr]);
+    }, cellsL, 'ov-' + theme + '-' + arr, [theme, arr, opsPerLayer, layers.map(function (ly) { return ly.rows; }), tr,postPerm]);
   }
 
-  /* ───────── 35칸 설계도: 실제 테스트 Q0~Q34 순서를 그대로 따른다 ───────── */
+  // Signed counts (Q28) and independent three-state positions (Q29).
+  // Both use a vector sum, with modulo 3 only for the latter.
+  function solveSum(d) {
+    var mod=d.meta.mod, predictions={};
+    function add(a,b){return a.map(function(x,i){var z=x+b[i];return mod ? (z%mod+mod)%mod : z;});}
+    function eq(a,b){return a.join(',')===b.join(',');}
+    [[0,1,2,3,4,5,6,7],[0,3,6,1,4,7,2,5]].forEach(function(ix){
+      var c=d.cells; if(eq(add(c[ix[0]].v,c[ix[1]].v),c[ix[2]].v)&&eq(add(c[ix[3]].v,c[ix[4]].v),c[ix[5]].v)) predictions['s'+add(c[ix[6]].v,c[ix[7]].v).join('.')]=1;
+    });
+    var keys=Object.keys(predictions);return {ok:keys.length===1,match:function(o){return keys.length===1&&o.k===keys[0];}};
+  }
+  function genSum(rng, level, ternary) {
+    var dim=ternary?4:2, mod=ternary?3:0;
+    function random(){var a=[];for(var i=0;i<dim;i++)a.push(ternary?rng.int(3):rng.range(-2,2));return a;}
+    function valid(a){var total=Math.abs(a[0])+Math.abs(a[1]);return ternary||a.every(function(x){return Math.abs(x)<=3;})&&total>0&&total<=5;}
+    function mk(a){return {v:a,k:'s'+a.join('.')};}
+    var cells=[],seen={};for(var r=0;r<3;r++){
+      var row=null;for(var attempt=0;attempt<80;attempt++){
+        var a=random(),b=random(),c=a.map(function(x,i){return mod?(x+b[i])%mod:x+b[i];});
+        if(!valid(a)||!valid(b)||!valid(c))continue;
+        var trial=[mk(a),mk(b),mk(c)],keys=trial.map(function(x){return x.k;});
+        if(new Set(keys).size!==3||keys.some(function(k){return seen[k];}))continue;
+        row=trial;keys.forEach(function(k){seen[k]=true;});break;
+      }
+      if(!row)return null;cells=cells.concat(row);
+    }
+    if(new Set(cells.map(function(c){return c.k;})).size!==9)return null;
+    if(rng.chance(0.5))cells=[cells[0],cells[3],cells[6],cells[1],cells[4],cells[7],cells[2],cells[5],cells[8]];
+    var meta={kind:'sum',mod:mod},sol=solveSum({cells:cells,meta:meta});if(!sol.ok||!sol.match(cells[8]))return null;
+    var render=function(d){
+      var s=L(50,12,50,88,'butt');
+      if(ternary){[[33,28],[67,28],[33,72],[67,72]].forEach(function(p,i){if(d.v[i]===1)s+=C(p[0],p[1],4.5,BLACK,0);if(d.v[i]===2)s+=Rc(p[0]-8,p[1]-8,16,16,WHITE);});}
+      else {[-1,1].forEach(function(side){var ys=80;[1,0].forEach(function(i){if(Math.sign(d.v[i])!==side)return;for(var n=0;n<Math.abs(d.v[i]);n++){s+=Rc((side<0?32:68)-6,ys-5,12,10,i?BLACK:WHITE);ys-=15;}});});}
+      return s;
+    };
+    var candidates=cells.slice(0,8);for(var t=0;t<60;t++){var a2=random();if(valid(a2))candidates.push(mk(a2));}
+    var opt=pickOptions(rng,cells[8],[grp(rng,candidates,5)],5);if(!opt||new Set(opt.options.map(render)).size!==6)return null;
+    return {family:ternary?'ternary-positions':'signed-stacks',cells:cells,options:opt.options,answer:opt.answer,render:render,meta:meta,spec:[ternary,cells.map(function(c){return c.v;})]};
+  }
+
+  // Q32: flags fold along wrapped diagonals. A folded flag keeps its fill;
+  // when flags overlap, hatching remains visible over an unfilled flag.
+  function unpackFlags(m){return [m&3,(m>>2)&3,(m>>4)&3,(m>>6)&3];}
+  function packFlags(a){return a.reduce(function(m,x,i){return m|(x<<(2*i));},0);}
+  function foldFlag(m,preferred){var a=unpackFlags(m),from=a[preferred]?preferred:preferred^1,to=from^1;a[to]=Math.max(a[to],a[from]);a[from]=0;return packFlags(a);}
+  function solveFold(m){
+    var preds={};
+    [-1,1].forEach(function(step){[false,true].forEach(function(reverse){[0,1].forEach(function(lo){[2,3].forEach(function(hi){
+      var order=reverse?[lo,hi]:[hi,lo],ok=true,pred;
+      for(var c=0;c<3;c++){
+        var c1=(c+step+3)%3,c2=(c+2*step+6)%3,a=foldFlag(m[c],order[0]),b=foldFlag(a,order[1]);
+        if(a!==m[3+c1]||(c2!==2&&b!==m[6+c2]))ok=false;if(c2===2)pred=b;
+      }
+      if(ok)preds[pred]=1;
+    });});});});
+    var keys=Object.keys(preds);return {ok:keys.length===1,pred:keys.length===1?+keys[0]:null};
+  }
+  function drawFlags(ms){
+    var a=unpackFlags(ms[0]),p=['50,50 14,30 14,50','50,50 14,50 14,70','50,50 86,30 86,50','50,50 86,50 86,70'];
+    var s=L(14,50,86,50,'butt');
+    a.forEach(function(x,i){if(!x)return;s+=Pg(p[i],WHITE);if(x===2){var id='flag'+i;s+='<clipPath id="'+id+'"><polygon points="'+p[i]+'"/></clipPath><g clip-path="url(#'+id+')">';for(var k=0;k<100;k+=6)s+=L(k,20,k,80,'butt');s+='</g>'+Pg(p[i],'none');}});
+    return Rot(-35,s);
+  }
+  function genFold(rng,level){
+    var m=[],step=rng.pick([-1,1]),lo=rng.int(2),hi=2+rng.int(2),order=rng.chance(0.5)?[lo,hi]:[hi,lo];
+    for(var c=0;c<3;c++){var a=[];for(var i=0;i<4;i++)a.push(rng.int(3));m[c]=packFlags(a);m[3+(c+step+3)%3]=foldFlag(m[c],order[0]);m[6+(c+2*step+6)%3]=foldFlag(m[3+(c+step+3)%3],order[1]);}
+    return finishMask(rng,level,{meta:{layers:[{nb:8,full:255,fold:true}]},valid:function(ms){return unpackFlags(ms[0]).every(function(x){return x<3;});},render:function(d){return drawFlags(d.m);}},m.map(function(x){return [x];}),'folded-flags',[step,order,m]);
+  }
+  // Q34: one hidden shape per wrapped diagonal in each direction; each cell is their union.
+  function solveDiagonalUnion(m,nb){
+    var prediction=0;
+    for(var bit=0;bit<nb;bit++){
+      var possible={};
+      for(var state=0;state<64;state++){
+        var ok=true;for(var i=0;i<8;i++){var r=Math.floor(i/3),c=i%3,a=(r+c)%3,b=(r-c+3)%3;if((((state>>a)&1)|((state>>(3+b))&1))!==((m[i]>>bit)&1)){ok=false;break;}}
+        if(ok)possible[((state>>1)&1)|((state>>3)&1)]=1;
+      }
+      var keys=Object.keys(possible);if(keys.length!==1)return {ok:false,pred:null};if(+keys[0])prediction|=1<<bit;
+    }
+    return {ok:true,pred:prediction};
+  }
+  function genDiagonalUnion(rng,level){
+    var a=[],b=[],cells=[];for(var i=0;i<3;i++){a.push(randMask(rng,8,rng.range(1,3)));b.push(randMask(rng,8,rng.range(1,3)));}
+    for(var r=0;r<3;r++)for(var c=0;c<3;c++)cells.push([a[(r+c)%3]|b[(r-c+3)%3]]);
+    return finishMask(rng,level,{meta:{layers:[{nb:8,full:255,diagonalUnion:true}]},render:function(d){return THEMES.compositeEdges.draw(d.m);}},cells,'diagonal-union',[a,b]);
+  }
+  // Q33: two white dots move around a six-position ring; black dots hide them.
+  // Order on the ring: LT, LM, LB, RB, RM, RT.
+  function rotate6(m,n){n=(n%6+6)%6;return ((m<<n)|(m>>(6-n)))&63;}
+  function solveOccluded(d){
+    var black=d.cells.slice(0,8).map(function(c){return c.m[0];}),bp=predictClass(black);if(bp.length!==1)return {ok:false};
+    var predicted={};
+    for(var base=0;base<64;base++){if(popcount(base)!==2)continue;for(var dr=1;dr<6;dr++)for(var dc=0;dc<6;dc++){
+      var ok=true;for(var i=0;i<8;i++){var r=Math.floor(i/3),c=i%3;if((rotate6(base,dr*r+dc*c)&~black[i]&63)!==d.cells[i].m[1]){ok=false;break;}}
+      if(ok)predicted[rotate6(base,2*dr+2*dc)&~bp[0]&63]=1;
+    }}
+    var keys=Object.keys(predicted);return {ok:keys.length===1,match:function(o){return keys.length===1&&o.m[0]===bp[0]&&o.m[1]===+keys[0];}};
+  }
+  function genOccluded(rng,level){
+    var rule=classRule(rng,'latin',rng.chance(0.5)),shapes=[];for(var j=0;j<3;j++)shapes.push(randMask(rng,6,rng.range(1,2)));
+    var base=randMask(rng,6,2),dr=rng.pick([1,5]),dc=rng.pick([2,4]),cells=[];
+    for(var r=0;r<3;r++)for(var c=0;c<3;c++){var black=shapes[valueAt(rule,r,c)],white=rotate6(base,dr*r+dc*c)&~black&63;cells.push([black,white]);}
+    var positions=[[33,22],[33,50],[33,78],[67,78],[67,50],[67,22]];
+    return finishMask(rng,level,{allowZero:true,meta:{kind:'occluded',layers:[{nb:6,full:63},{nb:6,full:63}]},valid:function(ms){return !(ms[0]&ms[1])&&popcount(ms[0])<=2&&popcount(ms[1])<=2;},render:function(d){var s=L(50,12,50,88,'butt');positions.forEach(function(p,i){if(d.m[0]&(1<<i))s+=C(p[0],p[1],6,BLACK);else if(d.m[1]&(1<<i))s+=C(p[0],p[1],6,WHITE);});return s;}},cells,'occluded-dots',[rule,shapes,base,dr,dc]);
+  }
+
+  /* ───────── 35칸 설계도: 검증한 규칙 계열로 새 문항 생성 ───────── */
   function A(fn) { return function (rng, lv) { var sc = fn(rng, lv); return sc && genAttr(rng, sc, lv); }; }
   var SLOTS = [
     /* 0  Q0  */ [genPixPos],
@@ -807,9 +969,9 @@
     /* 4  Q4  */ [A(function (r, l) { return sceneStick(r, l, 'arrow', 'orth'); })],
     /* 5  Q5  */ [A(scenePolyomino)],
     /* 6  Q6  */ [genPixHankel],
-    /* 7  Q7  */ [function (r, l) { return genPixTf(r, l, false, 'dots'); }],
+    /* 7  Q7  */ [A(sceneDotGroups)],
     /* 8  Q8  */ [A(sceneQuadrant)],
-    /* 9  Q9  */ [A(function (r, l) { return sceneUmbrella(r, l, 'orth'); }), A(function (r, l) { return sceneChevron(r, l); })],
+    /* 9  Q9  */ [A(sceneHalfArrow)],
     /* 10 Q10 */ [function (r, l) { return genOverlay(r, l, 'shapes', 'mid', ['or']); }],
     /* 11 Q11 */ [A(sceneDiagSquare)],
     /* 12 Q12 */ [A(function (r, l) { return sceneFrameSym(r, l, 'fill', 'latin'); })],
@@ -817,24 +979,24 @@
     /* 14 Q14 */ [A(sceneChevron)],
     /* 15 Q15 */ [A(function (r, l) { return sceneUmbrella(r, l, 'latin'); })],
     /* 16 Q16 */ [A(sceneClock)],
-    /* 17 Q17 */ [function (r, l) { return genOverlay(r, l, 'bars', 'last', ['or']); }, function (r, l) { return genOverlay(r, l, 'bars', 'last', ['xor']); }],
+    /* 17 Q17 */ [A(sceneLineCounts)],
     /* 18 Q18 */ [function (r, l) { return genOverlay(r, l, 'shapes', 'part', ['or']); }],
     /* 19 Q19 */ [function (r, l) { return genOverlay(r, l, 'segments', 'last', ['xor']); }],
-    /* 20 Q20 */ [function (r, l) { return genOverlay(r, l, 'segments', 'mid', ['or']); }, function (r, l) { return genOverlay(r, l, 'segments', 'last', ['d12']); }],
+    /* 20 Q20 */ [function (r, l) { return genOverlay(r, l, 'gridEdges', 'last', ['xor']); }],
     /* 21 Q21 */ [A(function (r, l) { return sceneAboveBelow(r, l, 'orth'); })],
     /* 22 Q22 */ [A(sceneTokens)],
     /* 23 Q23 */ [function (r, l) { return genOverlay(r, l, 'rays8', 'last', ['xor']); }],
-    /* 24 Q24 */ [function (r, l) { return genOverlay(r, l, 'dial2', 'last', ['xor', 'or']); }],
-    /* 25 Q25 */ [function (r, l) { return genOverlay(r, l, 'dial2', 'last', ['xor', 'xor']); }],
+    /* 24 Q24 */ [function (r, l) { return genOverlay(r, l, 'ringsDots', 'last', ['and', 'and']); }],
+    /* 25 Q25 */ [function (r, l) { return genOverlay(r, l, 'dial2', 'last', ['xor', 'and']); }],
     /* 26 Q26 */ [A(scenePincer)],
-    /* 27 Q27 */ [A(scenePolyline)],
-    /* 28 Q28 */ [function (r, l) { return genOverlay(r, l, 'vline', 'last', ['or']); }, function (r, l) { return genOverlay(r, l, 'vline', 'mid', ['or']); }],
-    /* 29 Q29 */ [A(function (r, l) { return sceneAboveBelow(r, l, 'mix'); })],
-    /* 30 Q30 */ [function (r, l) { return genPixOp(r, l, ['xor', 'and', 'd12', 'd21', 'xnor']); }, function (r, l) { return genPixTf(r, l, true, 'grid'); }],
-    /* 31 Q31 */ [function (r, l) { return genOverlay(r, l, 'vline', 'last', ['xor']); }],
-    /* 32 Q32 */ [A(sceneBowtie)],
-    /* 33 Q33 */ [function (r, l) { return genOverlay(r, l, 'vline', 'last', ['and']); }, function (r, l) { return genOverlay(r, l, 'vline', 'last', ['d12']); }],
-    /* 34 Q34 */ [function (r, l) { return genOverlay(r, l, 'segments', 'last', ['d21']); }, function (r, l) { return genOverlay(r, l, 'segments', 'last', ['and']); }, function (r, l) { return genOverlay(r, l, 'rays8', 'part', ['or']); }]
+    /* 27 Q27 */ [function (r, l) { return genOverlay(r, l, 'chainEdges', 'last', ['xor']); }],
+    /* 28 Q28 */ [function (r, l) { return genSum(r, l, false); }],
+    /* 29 Q29 */ [function (r, l) { return genSum(r, l, true); }],
+    /* 30 Q30 */ [function (r, l) { return genPixOp(r, l, ['xor']); }],
+    /* 31 Q31 */ [function (r, l) { return genOverlay(r, l, 'horizontal2', 'last', ['and','and'], [2,3,0,1]); }],
+    /* 32 Q32 */ [genFold],
+    /* 33 Q33 */ [genOccluded],
+    /* 34 Q34 */ [genDiagonalUnion]
   ];
   var TOTAL = SLOTS.length;
   function levelOf(slot) { return slot < 9 ? 1 : slot < 23 ? 2 : 3; }
@@ -871,7 +1033,7 @@
     return out;
   }
 
-  function solve(p) { return p._data.meta.kind === 'attr' ? solveAttr(p._data) : solveMask(p._data); }
+  function solve(p) { return p._data.meta.kind === 'attr' ? solveAttr(p._data) : p._data.meta.kind === 'sum' ? solveSum(p._data) : solveMask(p._data); }
 
   var api = { makeRng: makeRng, generateProblem: generateProblem, generateTest: generateTest, solve: solve, levelOf: levelOf, TOTAL: TOTAL, LEVELS: PLAN };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
