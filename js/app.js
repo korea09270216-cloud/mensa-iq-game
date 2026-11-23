@@ -3,12 +3,12 @@
   'use strict';
 
   var G = window.MensaGen;
-  var TOTAL_Q = G.TOTAL;            // 30문항
-  var TOTAL_SEC = 20 * 60;          // 제한시간 20분 (멘사코리아 입회 테스트도 20분 안팎)
+  var TOTAL_Q = G.TOTAL;            // 35문항
+  var TOTAL_SEC = 25 * 60;          // 제한시간 25분 (멘사 온라인 연습 테스트: 35문항 25분)
   var ADVANCE_MS = 220;             // 보기를 누르면 이 시간 뒤에 다음 문제로
-  var KEY = 'mensa-iq-game:v2';
+  var KEY = 'mensa-iq-game:v3';
   var WEIGHT = { 1: 1, 2: 1.5, 3: 2 };
-  var MAX_SCORE = G.LEVELS.reduce(function (s, l) { return s + WEIGHT[l[0]] * l[1]; }, 0);   // 10×1 + 12×1.5 + 8×2 = 44
+  var MAX_SCORE = G.LEVELS.reduce(function (s, l) { return s + WEIGHT[l[0]] * l[1]; }, 0);   // 12×1 + 13×1.5 + 10×2 = 51.5
 
   var app = document.getElementById('app');
   var topBar = document.getElementById('top');
@@ -38,7 +38,7 @@
 
   /* ───────── 보드 / 도형 ───────── */
   function cellHtml(inner) { return '<div class="cell"><svg viewBox="0 0 100 100" aria-hidden="true">' + inner + '</svg></div>'; }
-  var QCELL = '<div class="cell q"><svg viewBox="0 0 100 100" aria-hidden="true"><text x="50" y="67" text-anchor="middle" font-size="54" font-weight="300" fill="#3b5bdb" font-family="system-ui,sans-serif">?</text></svg></div>';
+  var QCELL = '<div class="cell q"><svg viewBox="0 0 100 100" aria-hidden="true"><text x="50" y="67" text-anchor="middle" font-size="50" font-weight="700" fill="#000" font-family="system-ui,sans-serif">?</text></svg></div>';
   function boardHtml(cells) {
     return '<div class="board" role="img" aria-label="3×3 도형 배열, 오른쪽 아래 칸이 비어 있음">' +
       cells.map(cellHtml).join('') + QCELL + '</div>';
@@ -51,7 +51,7 @@
     topBar.hidden = true;
     var resumable = state && !state.done && remaining() > 0;
     var hasResult = state && state.done;
-    var demo = G.generateProblem('matrix', 2, 20241123);
+    var demo = G.generateProblem('matrix', 1, 6);
     app.innerHTML =
       '<section class="cover">' +
       '<div class="hero">' + boardHtml(demo.cells) + '</div>' +
@@ -71,7 +71,7 @@
       '<ul class="tips">' +
       '<li>8개의 도형 속 규칙을 찾아 빈칸(?)에 들어갈 도형을 고르세요.</li>' +
       '<li>보기를 누르면 바로 다음 문제로 넘어가요. 이전 문제로 돌아가 답을 바꿀 수도 있어요.</li>' +
-      '<li>키보드: 1~6 보기 선택 · ←/→ 이동</li>' +
+      '<li>키보드: A~F(또는 1~6) 보기 선택 · ←/→ 이동</li>' +
       '</ul>' +
       '<p class="notice">재미용 테스트입니다. 멘사(Mensa)와 무관하며 공식 IQ 검사가 아니에요.</p>' +
       '</section>';
@@ -126,8 +126,8 @@
   function optionsHtml(p, sel) {
     return '<div class="opts" role="radiogroup" aria-label="보기">' + p.options.map(function (o, i) {
       return '<button type="button" class="opt' + (i === sel ? ' sel' : '') + '" role="radio" aria-checked="' + (i === sel) +
-        '" data-i="' + i + '" aria-label="보기 ' + (i + 1) + '"><span class="num">' + (i + 1) + '</span>' +
-        '<svg viewBox="0 0 100 100" aria-hidden="true">' + o + '</svg></button>';
+        '" data-i="' + i + '" aria-label="보기 ' + 'ABCDEF'.charAt(i) + '"><span class="lbl">' + 'ABCDEF'.charAt(i) + '</span>' +
+        '<span class="fig"><svg viewBox="0 0 100 100" aria-hidden="true">' + o + '</svg></span></button>';
     }).join('') + '</div>';
   }
 
@@ -270,6 +270,7 @@
     if (screen !== 'test' || !state || state.done) return;
     var k = e.key;
     if (k >= '1' && k <= '6') { choose(parseInt(k, 10) - 1); e.preventDefault(); }
+    else if (/^[a-fA-F]$/.test(k)) { choose(k.toUpperCase().charCodeAt(0) - 65); e.preventDefault(); }
     else if (k === 'ArrowLeft') go(state.cur - 1);
     else if (k === 'ArrowRight') go(state.cur + 1);
   });

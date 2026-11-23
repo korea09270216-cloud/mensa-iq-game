@@ -1,5 +1,5 @@
 :root {
-  --bg: #f6f6f3;
+  --bg: #ffffff;
   --surface: #ffffff;
   --ink: #18202f;
   --ink2: #4b5565;
@@ -25,7 +25,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
 
 /* ── 상단 바: 시계는 항상 보인다 (색 변화·깜빡임 없이 조용하게) ── */
-#top { position: sticky; top: 0; z-index: 10; background: rgba(246, 246, 243, .92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+#top { position: sticky; top: 0; z-index: 10; background: rgba(255, 255, 255, .94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
 #top[hidden] { display: none; }
 .top-in { max-width: 1040px; margin: 0 auto; height: 54px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; }
 .brand { font-weight: 700; letter-spacing: -.01em; font-size: 15px; }
@@ -41,7 +41,7 @@ main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
 .hero { width: 176px; margin: 0 auto 22px; }
 .cover h1 { margin: 0 0 8px; font-size: 25px; letter-spacing: -.02em; }
 .chips { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin: 0 0 24px; }
-.chips span { padding: 3px 10px; border-radius: 999px; background: var(--bg); color: var(--ink2); font-size: 13px; }
+.chips span { padding: 3px 10px; border-radius: 999px; background: #f1f1ee; color: var(--ink2); font-size: 13px; }
 .cover label { display: block; text-align: left; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
 .cover input {
   width: 100%; padding: 12px 14px; font: inherit; font-size: 16px; border: 1.5px solid var(--line); border-radius: 12px;
@@ -58,15 +58,14 @@ main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
 .tips li::before { content: "·"; position: absolute; left: 3px; }
 .notice { margin: 16px 0 0; font-size: 12px; color: var(--muted); }
 
-/* ── 3×3 보드 (공통) ── */
+/* ── 3×3 보드 (공통): 굵은 검은 격자선, 흰 칸 ── */
 .board {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line2);
-  border: 1px solid var(--line2); border-radius: 16px; overflow: hidden;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; background: #000;
+  border: 3px solid #000;
 }
-.cell { background: #fff; aspect-ratio: 1; padding: 7%; display: block; min-width: 0; }
+.cell { background: #fff; aspect-ratio: 1; padding: 6%; display: block; min-width: 0; }
 .cell svg { display: block; width: 100%; height: 100%; }
-.cell.q { background: var(--accent-soft); }
-.hero .board { border-radius: 12px; }
+.hero .board { gap: 2px; border-width: 2px; }
 
 /* ── 문제 화면 ── */
 .seg { display: flex; gap: 3px; margin: 0 0 22px; }
@@ -76,20 +75,15 @@ main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
 .hint { margin: 0 0 18px; text-align: center; color: var(--ink2); font-size: 15px; }
 .stage { display: grid; gap: 22px; justify-items: center; }
 .stage .board { width: min(100%, 330px); }
-.opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; width: min(100%, 360px); }
-.opt {
-  position: relative; aspect-ratio: 1; padding: 8%; background: var(--surface); border: 1.5px solid var(--line);
-  border-radius: 14px; transition: border-color .12s, box-shadow .12s, transform .08s;
-}
-.opt svg { display: block; width: 100%; height: 100%; }
-.opt:hover { border-color: var(--accent); }
-.opt:active { transform: scale(.97); }
-.opt.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--accent-soft); }
-.opt .num {
-  position: absolute; top: 6px; left: 6px; width: 20px; height: 20px; border-radius: 50%; background: var(--bg);
-  color: var(--ink2); font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center;
-}
-.opt.sel .num { background: var(--accent); color: #fff; }
+.opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 12px; width: min(100%, 360px); }
+.opt { padding: 0; background: transparent; border: 0; text-align: center; }
+.opt .lbl { display: block; font-size: 15px; font-weight: 700; margin-bottom: 4px; color: var(--ink); }
+.opt .fig { display: block; aspect-ratio: 1; padding: 6%; background: #fff; border: 3px solid #000; transition: outline-color .12s, transform .08s; outline: 4px solid transparent; outline-offset: 2px; }
+.opt .fig svg { display: block; width: 100%; height: 100%; }
+.opt:hover .fig { outline-color: #c9d2f5; }
+.opt:active .fig { transform: scale(.97); }
+.opt.sel .fig { outline-color: var(--accent); }
+.opt.sel .lbl { color: var(--accent); }
 .actions { display: flex; justify-content: center; gap: 10px; margin-top: 26px; }
 .actions button { padding: 11px 20px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--surface); font-size: 15px; color: var(--ink2); }
 .actions button:hover { background: #fff; border-color: var(--line2); }
